@@ -53,6 +53,7 @@ impl SystemPoller {
                 self.emit_resources(&sys);
                 self.emit_network();
                 self.emit_disks();
+                crate::gpu::poll_gpu(&self.gpu_backend, &self.handle);
 
                 thread::sleep(Duration::from_secs(1));
             }
