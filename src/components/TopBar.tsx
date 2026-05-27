@@ -30,8 +30,8 @@ export function TopBar() {
   const fmt = (b: number) => b > 1_048_576 ? `${(b / 1_048_576).toFixed(1)}MB/s` : `${(b / 1024).toFixed(0)}KB/s`;
 
   return (
-    <div style={{ display: 'flex', gap: 6, padding: '6px 12px',
-      background: 'var(--mantle)', borderBottom: '1px solid var(--surface0)' }}>
+    <div data-tauri-drag-region style={{ display: 'flex', gap: 6, padding: '6px 12px',
+      background: 'var(--mantle)', borderBottom: '1px solid var(--surface0)', cursor: 'grab' }}>
       <Pill label="CPU" value={`${avgCpu.toFixed(1)}%`} pct={avgCpu} />
       <Pill label="MEM" value={`${(ram_used_mb / 1024).toFixed(1)}G`} pct={ramPct} />
       <Pill label="↓" value={fmt(rxTotal)} pct={Math.min(rxTotal / 10_485_760 * 100, 100)} />
