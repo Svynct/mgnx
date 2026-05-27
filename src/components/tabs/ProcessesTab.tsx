@@ -3,6 +3,8 @@ import { useProcessStore } from '../../stores/processStore';
 import { ProcessRow } from '../ProcessRow';
 import { ContextMenu } from '../ContextMenu';
 import { ActionBar } from '../ActionBar';
+import { ReniceModal } from '../ReniceModal';
+import { DetailsDrawer } from '../DetailsDrawer';
 
 const COL_HEADERS = ['PID', 'Name', 'CPU%', 'Memory', 'Status', 'User', 'Threads'];
 
@@ -88,9 +90,12 @@ export function ProcessesTab() {
         onAction={(a) => { if (a === 'renice') setShowRenice(true); else setShowDetails(true); }}
       />
 
-      {/* ReniceModal and DetailsDrawer rendered in Task 14 */}
-      {showRenice && null}
-      {showDetails && null}
+      {showRenice && selectedPid !== null && (
+        <ReniceModal pid={selectedPid} onClose={() => setShowRenice(false)} />
+      )}
+      {showDetails && selectedPid !== null && (
+        <DetailsDrawer pid={selectedPid} onClose={() => setShowDetails(false)} />
+      )}
     </div>
   );
 }
