@@ -1,3 +1,70 @@
+import { useRef, useEffect } from 'react';
+import { useProcessStore } from '../../stores/processStore';
+import { ProcessRow } from '../ProcessRow';
+
+const COL_HEADERS = ['PID', 'Name', 'CPU%', 'Memory', 'Status', 'User', 'Threads'];
+
 export function ProcessesTab() {
-  return <div>Processes</div>;
+  const { filtered, filter, setFilter, sortBy, setSortBy, selectedPid, setSelectedPid } = useProcessStore();
+  const filterRef = useRef<HTMLInputElement>(null);
+  const rows = filtered();
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === '/' && document.activeElement !== filterRef.current) {
+        e.preventDefault();
+        filterRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input
+          ref={filterRef}
+          placeholder="Filter processes…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          style={{ width: 220 }}
+        />
+        {(['cpu', 'mem', 'name'] as const).map((s) => (
+          <button key={s} onClick={() => setSortBy(s)}
+            style={{ borderColor: sortBy === s ? 'var(--mauve)' : undefined,
+                     color: sortBy === s ? 'var(--mauve)' : undefined }}>
+            {s.toUpperCase()}
+          </button>
+        ))}
+        <span className="badge">{rows.length} processes</span>
+      </div>
+
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+          <colgroup>
+            <col style={{ width: 60 }} /><col /><col style={{ width: 70 }} />
+            <col style={{ width: 90 }} /><col style={{ width: 80 }} />
+            <col style={{ width: 80 }} /><col style={{ width: 60 }} />
+          </colgroup>
+          <thead>
+            <tr style={{ color: 'var(--overlay0)', fontSize: 11, borderBottom: '1px solid var(--surface0)' }}>
+              {COL_HEADERS.map((h) => <th key={h} style={{ textAlign: 'left', padding: '4px 0', fontWeight: 400 }}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((p) => (
+              <ProcessRow
+                key={p.pid}
+                proc={p}
+                selected={selectedPid === p.pid}
+                onSelect={() => setSelectedPid(selectedPid === p.pid ? null : p.pid)}
+                onContextMenu={() => {}}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
