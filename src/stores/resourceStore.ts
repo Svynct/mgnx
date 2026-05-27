@@ -25,7 +25,7 @@ const defaults: ResourcesPayload = {
   ram_used_mb: 0, ram_total_mb: 0, swap_used_mb: 0, swap_total_mb: 0,
 };
 
-export const useResourceStore = create<ResourceStore>((set, get) => ({
+export const useResourceStore = create<ResourceStore>((set) => ({
   ...defaults,
   cpuHistory: [],
   ramHistory: [],
