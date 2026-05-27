@@ -1,12 +1,17 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { useProcessStore } from '../../stores/processStore';
 import { ProcessRow } from '../ProcessRow';
+import { ContextMenu } from '../ContextMenu';
+import { ActionBar } from '../ActionBar';
 
 const COL_HEADERS = ['PID', 'Name', 'CPU%', 'Memory', 'Status', 'User', 'Threads'];
 
 export function ProcessesTab() {
   const { filtered, filter, setFilter, sortBy, setSortBy, selectedPid, setSelectedPid } = useProcessStore();
   const filterRef = useRef<HTMLInputElement>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; pid: number } | null>(null);
+  const [showRenice, setShowRenice] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const rows = filtered();
 
   useEffect(() => {
@@ -59,12 +64,33 @@ export function ProcessesTab() {
                 proc={p}
                 selected={selectedPid === p.pid}
                 onSelect={() => setSelectedPid(selectedPid === p.pid ? null : p.pid)}
-                onContextMenu={() => {}}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setCtxMenu({ x: e.clientX, y: e.clientY, pid: p.pid });
+                }}
               />
             ))}
           </tbody>
         </table>
       </div>
+
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x} y={ctxMenu.y} pid={ctxMenu.pid}
+          onClose={() => setCtxMenu(null)}
+          onRenice={() => { setSelectedPid(ctxMenu.pid); setShowRenice(true); }}
+          onDetails={() => { setSelectedPid(ctxMenu.pid); setShowDetails(true); }}
+        />
+      )}
+
+      <ActionBar
+        selectedPid={selectedPid}
+        onAction={(a) => { if (a === 'renice') setShowRenice(true); else setShowDetails(true); }}
+      />
+
+      {/* ReniceModal and DetailsDrawer rendered in Task 14 */}
+      {showRenice && null}
+      {showDetails && null}
     </div>
   );
 }
