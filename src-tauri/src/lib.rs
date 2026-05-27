@@ -1,4 +1,15 @@
 pub mod types;
+pub mod poller;
+
+// Temporary stub — replaced in Task 6
+pub mod gpu {
+    pub enum GpuBackend {
+        None,
+    }
+    pub fn detect_gpu() -> GpuBackend {
+        GpuBackend::None
+    }
+}
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
