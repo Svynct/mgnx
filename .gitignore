@@ -1,6 +1,7 @@
 .worktrees/
 node_modules/
 dist/
+coverage/
 target/
 src-tauri/target/
 *.local
