@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessEntry {
     pub pid: u32,
+    pub ppid: u32,
     pub name: String,
     pub cpu_percent: f32,
     pub memory_mb: f64,
@@ -114,6 +115,7 @@ mod tests {
     fn process_entry_serde_roundtrip() {
         let entry = ProcessEntry {
             pid: 42,
+            ppid: 1,
             name: "bash".to_string(),
             cpu_percent: 1.5,
             memory_mb: 128.0,

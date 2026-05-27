@@ -61,6 +61,9 @@ impl SystemPoller {
     }
 
     fn emit_processes(&self, sys: &System, users: &Users) {
+        // sysinfo's cpu_usage() is per-core (100% = one full core, can exceed 100%
+        // for multi-threaded procs). Divide by core count so 100% = all cores busy.
+        let cpu_count = sys.cpus().len().max(1) as f32;
         let mut entries: Vec<ProcessEntry> = sys
             .processes()
             .values()
@@ -73,8 +76,9 @@ impl SystemPoller {
 
                 ProcessEntry {
                     pid: p.pid().as_u32(),
+                    ppid: p.parent().map(|pp| pp.as_u32()).unwrap_or(0),
                     name: p.name().to_string_lossy().into_owned(),
-                    cpu_percent: p.cpu_usage(),
+                    cpu_percent: p.cpu_usage() / cpu_count,
                     memory_mb: p.memory() as f64 / 1_048_576.0,
                     status: format!("{:?}", p.status()),
                     user,
@@ -256,6 +260,7 @@ mod tests {
         let mut entries = vec![
             ProcessEntry {
                 pid: 1,
+                ppid: 0,
                 name: "low".to_string(),
                 cpu_percent: 1.0,
                 memory_mb: 0.0,
@@ -265,6 +270,7 @@ mod tests {
             },
             ProcessEntry {
                 pid: 2,
+                ppid: 0,
                 name: "high".to_string(),
                 cpu_percent: 99.0,
                 memory_mb: 0.0,
@@ -274,6 +280,7 @@ mod tests {
             },
             ProcessEntry {
                 pid: 3,
+                ppid: 0,
                 name: "mid".to_string(),
                 cpu_percent: 50.0,
                 memory_mb: 0.0,
@@ -298,6 +305,7 @@ mod tests {
         let mut entries = vec![
             ProcessEntry {
                 pid: 1,
+                ppid: 0,
                 name: "a".to_string(),
                 cpu_percent: f32::NAN,
                 memory_mb: 0.0,
@@ -307,6 +315,7 @@ mod tests {
             },
             ProcessEntry {
                 pid: 2,
+                ppid: 0,
                 name: "b".to_string(),
                 cpu_percent: 5.0,
                 memory_mb: 0.0,

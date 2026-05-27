@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTauriEvents } from './hooks/useTauriEvents';
-import { useKeyboardNav } from './hooks/useKeyboardNav';
-import { useProcessStore } from './stores/processStore';
+import { useProcessStore, filterProcesses } from './stores/processStore';
+import { buildVisibleTree, hoistPinnedTree, flatToTreeRows } from './lib/processTree';
+import { useGpuStore } from './stores/gpuStore';
+import { isEditableTarget } from './lib/keyboard';
 import { TopBar } from './components/TopBar';
 import { TabBar, TabName } from './components/TabBar';
 import { ProcessesTab } from './components/tabs/ProcessesTab';
@@ -10,48 +12,70 @@ import { NetworkTab } from './components/tabs/NetworkTab';
 import { DiskTab } from './components/tabs/DiskTab';
 import { GpuTab } from './components/tabs/GpuTab';
 
-const SORT_KEYS = ['cpu', 'mem', 'name'] as const;
-
 export default function App() {
   useTauriEvents();
   const [tab, setTab] = useState<TabName>('processes');
-  const { filtered, setSelectedPid, setSortBy } = useProcessStore();
-  const rows = filtered();
 
-  const nav = useKeyboardNav(tab, useProcessStore.getState().selectedPid !== null, {
-    rowCount: rows.length,
-    filterCount: SORT_KEYS.length,
-    actionCount: 6,
-    onTabChange: setTab,
-    onRowSelect: (idx) => setSelectedPid(rows[idx]?.pid ?? null),
-    onRowDeselect: () => setSelectedPid(null),
-    onActionActivate: () => {},
-    onFilterActivate: (idx) => setSortBy(SORT_KEYS[idx]),
-  });
+  const processes = useProcessStore((s) => s.processes);
+  const filter = useProcessStore((s) => s.filter);
+  const sortBy = useProcessStore((s) => s.sortBy);
+  const pinned = useProcessStore((s) => s.pinned);
+  const expanded = useProcessStore((s) => s.expanded);
 
+  const gpuAvailable = useGpuStore((s) => s.available);
+  const tabs = useMemo<TabName[]>(
+    () => gpuAvailable
+      ? ['processes', 'resources', 'network', 'disk', 'gpu']
+      : ['processes', 'resources', 'network', 'disk'],
+    [gpuAvailable],
+  );
+
+  // Tree rows with pinned subtrees hoisted to the top. While filtering, the tree
+  // collapses to a flat sorted list (no parent grouping); otherwise a collapsed
+  // htop-style tree is built from `expanded`. Recomputed only on data/filter/
+  // sort/pin/expand changes.
+  const rows = useMemo(
+    () => filter
+      ? hoistPinnedTree(flatToTreeRows(filterProcesses(processes, filter, sortBy)), pinned)
+      : hoistPinnedTree(buildVisibleTree(processes, new Set(expanded), sortBy), pinned),
+    [processes, filter, sortBy, pinned, expanded],
+  );
+
+  // ArrowLeft/ArrowRight switch tabs globally. Listener registers once; reads
+  // latest tab/tabs via a ref so it never needs re-binding.
+  const tabNavRef = useRef({ tab, tabs });
+  tabNavRef.current = { tab, tabs };
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => nav.handleKey(e);
-    // capture=true: intercept Tab before browser focus management
-    window.addEventListener('keydown', handler, { capture: true });
-    return () => window.removeEventListener('keydown', handler, { capture: true });
-  }, [nav.handleKey]);
+    const onKey = (e: KeyboardEvent) => {
+      if (isEditableTarget(e.target)) return;
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      if (e.repeat) return; // one tab per keypress
+      // Drop DOM focus so a stale focus ring doesn't linger on a different tab
+      // than the active one while arrow-navigating.
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      const { tab, tabs } = tabNavRef.current;
+      const cur = Math.max(0, tabs.indexOf(tab));
+      const step = e.key === 'ArrowRight' ? 1 : tabs.length - 1;
+      setTab(tabs[(cur + step) % tabs.length]);
+    };
+    window.addEventListener('keydown', onKey, { capture: true });
+    return () => window.removeEventListener('keydown', onKey, { capture: true });
+  }, []);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <TopBar />
-      <TabBar active={tab} onSelect={setTab} activeZone={nav.zone} />
-      <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
+      <TabBar tabs={tabs} active={tab} onSelect={setTab} />
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         {tab === 'processes'
-          ? <ProcessesTab
-              navZone={nav.zone}
-              navRowIdx={nav.rowIdx}
-              navFilterIdx={nav.filterIdx}
-              navActionIdx={nav.actionIdx}
-            />
-          : tab === 'resources' ? <ResourcesTab />
-          : tab === 'network'   ? <NetworkTab />
-          : tab === 'disk'      ? <DiskTab />
-          : <GpuTab />}
+          ? <ProcessesTab rows={rows} />
+          : <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
+              {tab === 'resources' ? <ResourcesTab />
+                : tab === 'network' ? <NetworkTab />
+                : tab === 'disk'    ? <DiskTab />
+                : <GpuTab />}
+            </div>}
       </div>
     </div>
   );

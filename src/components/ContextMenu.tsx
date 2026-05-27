@@ -3,6 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 
 interface ContextMenuProps {
   x: number; y: number; pid: number;
+  isPinned: boolean;
+  onTogglePin: () => void;
   onClose: () => void;
   onRenice?: () => void;
   onDetails?: () => void;
@@ -25,7 +27,7 @@ function Divider() {
   return <div style={{ height: 1, background: 'var(--surface1)', margin: '2px 0' }} />;
 }
 
-export function ContextMenu({ x, y, pid, onClose, onRenice, onDetails }: ContextMenuProps) {
+export function ContextMenu({ x, y, pid, isPinned, onTogglePin, onClose, onRenice, onDetails }: ContextMenuProps) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     const click = () => onClose();
@@ -44,6 +46,8 @@ export function ContextMenu({ x, y, pid, onClose, onRenice, onDetails }: Context
       style={{ position: 'fixed', top: y, left: x, zIndex: 1000,
         background: 'var(--mantle)', border: '1px solid var(--surface1)',
         borderRadius: 6, minWidth: 150, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
+      <Item label={isPinned ? 'Unpin' : 'Pin'} onClick={() => { onTogglePin(); onClose(); }} />
+      <Divider />
       <Item label="SIGKILL" danger onClick={() => act('process_kill')} />
       <Item label="SIGTERM" danger onClick={() => act('process_term')} />
       <Divider />
