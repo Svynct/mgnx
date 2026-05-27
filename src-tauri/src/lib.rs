@@ -1,6 +1,7 @@
 pub mod types;
 pub mod poller;
 pub mod gpu;
+pub mod commands;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -12,7 +13,14 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            commands::process_kill,
+            commands::process_term,
+            commands::process_suspend,
+            commands::process_resume,
+            commands::process_renice,
+        ])
         .setup(|app| {
             use tauri::Emitter;
             let poller = poller::SystemPoller::new(app.handle().clone());
