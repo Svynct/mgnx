@@ -4,27 +4,31 @@ use nix::unistd::Pid;
 use std::fs;
 use tauri::command;
 
+fn pid_to_raw(pid: u32) -> Result<i32, String> {
+    i32::try_from(pid).map_err(|_| format!("invalid pid {pid}: exceeds i32::MAX"))
+}
+
 #[command]
 pub fn process_kill(pid: u32) -> Result<(), String> {
-    kill(Pid::from_raw(pid as i32), Signal::SIGKILL)
+    kill(Pid::from_raw(pid_to_raw(pid)?), Signal::SIGKILL)
         .map_err(|e| format!("SIGKILL pid {pid}: {e}"))
 }
 
 #[command]
 pub fn process_term(pid: u32) -> Result<(), String> {
-    kill(Pid::from_raw(pid as i32), Signal::SIGTERM)
+    kill(Pid::from_raw(pid_to_raw(pid)?), Signal::SIGTERM)
         .map_err(|e| format!("SIGTERM pid {pid}: {e}"))
 }
 
 #[command]
 pub fn process_suspend(pid: u32) -> Result<(), String> {
-    kill(Pid::from_raw(pid as i32), Signal::SIGSTOP)
+    kill(Pid::from_raw(pid_to_raw(pid)?), Signal::SIGSTOP)
         .map_err(|e| format!("SIGSTOP pid {pid}: {e}"))
 }
 
 #[command]
 pub fn process_resume(pid: u32) -> Result<(), String> {
-    kill(Pid::from_raw(pid as i32), Signal::SIGCONT)
+    kill(Pid::from_raw(pid_to_raw(pid)?), Signal::SIGCONT)
         .map_err(|e| format!("SIGCONT pid {pid}: {e}"))
 }
 
@@ -138,16 +142,20 @@ mod tests {
 
     #[test]
     fn signal_commands_fail_on_invalid_pid() {
-        // PID u32::MAX will not exist; all signal commands must return Err, not panic.
-        assert!(process_kill(u32::MAX).is_err());
-        assert!(process_term(u32::MAX).is_err());
-        assert!(process_suspend(u32::MAX).is_err());
-        assert!(process_resume(u32::MAX).is_err());
+        // 9999999 exceeds Linux max PID (4194304) so it won't exist; must return Err not panic.
+        // u32::MAX is intentionally avoided — it wraps to -1 as i32, which kill(-1, sig)
+        // interprets as "signal all processes", which would kill the test runner's session.
+        const BOGUS_PID: u32 = 9_999_999;
+        assert!(process_kill(BOGUS_PID).is_err());
+        assert!(process_term(BOGUS_PID).is_err());
+        assert!(process_suspend(BOGUS_PID).is_err());
+        assert!(process_resume(BOGUS_PID).is_err());
     }
 
     #[test]
     fn error_messages_include_pid() {
-        let err = process_kill(u32::MAX).unwrap_err();
-        assert!(err.contains(&u32::MAX.to_string()), "error should include pid: {err}");
+        const BOGUS_PID: u32 = 9_999_999;
+        let err = process_kill(BOGUS_PID).unwrap_err();
+        assert!(err.contains(&BOGUS_PID.to_string()), "error should include pid: {err}");
     }
 }
