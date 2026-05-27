@@ -1,13 +1,18 @@
+use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
-use sysinfo::{CpuRefreshKind, MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, Users};
+use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, Networks, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, Users};
 use tauri::{AppHandle, Emitter};
 
-use crate::types::{CpuCoreUsage, ProcessEntry, ResourcesPayload};
+use crate::types::{CpuCoreUsage, DiskEntry, NetworkConnection, NetworkInterface, ProcessEntry, ResourcesPayload};
 
 pub struct SystemPoller {
     pub handle: AppHandle,
     pub gpu_backend: crate::gpu::GpuBackend,
+    networks: Networks,
+    disks: Disks,
+    prev_rx: HashMap<String, u64>,
+    prev_tx: HashMap<String, u64>,
 }
 
 impl SystemPoller {
@@ -15,10 +20,14 @@ impl SystemPoller {
         Self {
             gpu_backend: crate::gpu::detect_gpu(),
             handle,
+            networks: Networks::new_with_refreshed_list(),
+            disks: Disks::new_with_refreshed_list(),
+            prev_rx: HashMap::new(),
+            prev_tx: HashMap::new(),
         }
     }
 
-    pub fn start(self) {
+    pub fn start(mut self) {
         thread::spawn(move || {
             let mut sys = System::new_with_specifics(
                 RefreshKind::new()
@@ -37,9 +46,13 @@ impl SystemPoller {
                     ProcessRefreshKind::everything(),
                 );
                 users.refresh_list();
+                self.networks.refresh();
+                self.disks.refresh();
 
                 self.emit_processes(&sys, &users);
                 self.emit_resources(&sys);
+                self.emit_network();
+                self.emit_disks();
 
                 thread::sleep(Duration::from_secs(1));
             }
@@ -104,6 +117,131 @@ impl SystemPoller {
         if let Err(e) = self.handle.emit("resources-update", payload) {
             eprintln!("emit resources-update failed: {e}");
         }
+    }
+
+    fn emit_network(&mut self) {
+        let conns = parse_proc_connections();
+
+        // Collect immutable borrow of `networks` before mutating `prev_*` maps.
+        let snapshots: Vec<(String, u64, u64, bool)> = self
+            .networks
+            .iter()
+            .map(|(name, data)| {
+                let is_up = data.mac_address().to_string() != "00:00:00:00:00:00";
+                (name.clone(), data.total_received(), data.total_transmitted(), is_up)
+            })
+            .collect();
+
+        let ifaces: Vec<NetworkInterface> = snapshots
+            .into_iter()
+            .map(|(name, rx_now, tx_now, is_up)| {
+                let rx_per_sec =
+                    rx_now.saturating_sub(*self.prev_rx.get(&name).unwrap_or(&rx_now)) as f64;
+                let tx_per_sec =
+                    tx_now.saturating_sub(*self.prev_tx.get(&name).unwrap_or(&tx_now)) as f64;
+                self.prev_rx.insert(name.clone(), rx_now);
+                self.prev_tx.insert(name.clone(), tx_now);
+
+                NetworkInterface {
+                    name,
+                    is_up,
+                    ip: String::new(),
+                    link_speed_mbps: 0,
+                    rx_bytes_per_sec: rx_per_sec,
+                    tx_bytes_per_sec: tx_per_sec,
+                    rx_total_mb: rx_now as f64 / 1_048_576.0,
+                    tx_total_mb: tx_now as f64 / 1_048_576.0,
+                    connections: conns.clone(),
+                }
+            })
+            .collect();
+
+        if let Err(e) = self.handle.emit("network-update", ifaces) {
+            eprintln!("emit network-update failed: {e}");
+        }
+    }
+
+    fn emit_disks(&self) {
+        let entries: Vec<DiskEntry> = self
+            .disks
+            .iter()
+            .map(|d| DiskEntry {
+                mount: d.mount_point().to_string_lossy().into_owned(),
+                device: d.name().to_string_lossy().into_owned(),
+                fs_type: d.file_system().to_string_lossy().into_owned(),
+                used_bytes: d.total_space() - d.available_space(),
+                total_bytes: d.total_space(),
+                read_bytes_per_sec: 0.0,
+                write_bytes_per_sec: 0.0,
+                inodes_used: 0,
+                inodes_total: 0,
+            })
+            .collect();
+
+        if let Err(e) = self.handle.emit("disk-update", entries) {
+            eprintln!("emit disk-update failed: {e}");
+        }
+    }
+}
+
+fn parse_proc_connections() -> Vec<NetworkConnection> {
+    let mut conns = Vec::new();
+    for (path, proto) in &[("/proc/net/tcp", "TCP"), ("/proc/net/tcp6", "TCP6")] {
+        let Ok(content) = std::fs::read_to_string(path) else { continue };
+        for line in content.lines().skip(1) {
+            let cols: Vec<&str> = line.split_whitespace().collect();
+            if cols.len() < 4 {
+                continue;
+            }
+            if let (Some(local_port), Some(remote), Some(state)) =
+                (parse_hex_port(cols[1]), format_hex_addr(cols[2]), state_name(cols[3]))
+            {
+                conns.push(NetworkConnection {
+                    proto: proto.to_string(),
+                    local_port,
+                    remote_addr: remote,
+                    state: state.to_string(),
+                });
+            }
+        }
+    }
+    conns
+}
+
+fn parse_hex_port(addr: &str) -> Option<u16> {
+    addr.split(':').nth(1).and_then(|p| u16::from_str_radix(p, 16).ok())
+}
+
+fn format_hex_addr(addr: &str) -> Option<String> {
+    let parts: Vec<&str> = addr.split(':').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    let ip_hex = parts[0];
+    let port = u16::from_str_radix(parts[1], 16).ok()?;
+    if ip_hex.len() == 8 {
+        let n = u32::from_str_radix(ip_hex, 16).ok()?;
+        let b = n.to_le_bytes();
+        Some(format!("{}.{}.{}.{}:{}", b[0], b[1], b[2], b[3], port))
+    } else {
+        Some(format!("[ipv6]:{}", port))
+    }
+}
+
+fn state_name(hex: &str) -> Option<&'static str> {
+    match hex {
+        "01" => Some("ESTABLISHED"),
+        "02" => Some("SYN_SENT"),
+        "03" => Some("SYN_RECV"),
+        "04" => Some("FIN_WAIT1"),
+        "05" => Some("FIN_WAIT2"),
+        "06" => Some("TIME_WAIT"),
+        "07" => Some("CLOSE"),
+        "08" => Some("CLOSE_WAIT"),
+        "09" => Some("LAST_ACK"),
+        "0A" => Some("LISTEN"),
+        "0B" => Some("CLOSING"),
+        _ => None,
     }
 }
 
@@ -196,5 +334,32 @@ mod tests {
         let bytes_16gb: u64 = 16 * 1024 * 1024 * 1024;
         let mb_16gb = bytes_16gb as f64 / 1_048_576.0;
         assert!((mb_16gb - 16384.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parse_hex_port_returns_decimal_port() {
+        assert_eq!(parse_hex_port("0100007F:0050"), Some(80)); // port 0x0050 = 80
+        assert_eq!(parse_hex_port("0100007F:1F90"), Some(8080)); // 0x1F90 = 8080
+        assert_eq!(parse_hex_port("no_colon"), None);
+        assert_eq!(parse_hex_port(":ZZZZ"), None); // invalid hex
+    }
+
+    #[test]
+    fn format_hex_addr_decodes_ipv4_little_endian() {
+        // 0100007F = 127.0.0.1 in little-endian hex, port 0x0050 = 80
+        let result = format_hex_addr("0100007F:0050");
+        assert_eq!(result, Some("127.0.0.1:80".to_string()));
+
+        // More than two colon-separated parts is rejected.
+        let none = format_hex_addr("too:many:colons");
+        assert!(none.is_none());
+    }
+
+    #[test]
+    fn state_name_maps_known_states() {
+        assert_eq!(state_name("01"), Some("ESTABLISHED"));
+        assert_eq!(state_name("0A"), Some("LISTEN"));
+        assert_eq!(state_name("FF"), None);
+        assert_eq!(state_name(""), None);
     }
 }
