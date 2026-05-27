@@ -20,6 +20,7 @@ pub fn run() {
             commands::process_suspend,
             commands::process_resume,
             commands::process_renice,
+            commands::process_details,
         ])
         .setup(|app| {
             use tauri::Emitter;
