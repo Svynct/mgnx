@@ -1,6 +1,6 @@
 use std::thread;
 use std::time::Duration;
-use sysinfo::{CpuRefreshKind, MemoryRefreshKind, ProcessRefreshKind, RefreshKind, System, Users};
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, Users};
 use tauri::{AppHandle, Emitter};
 
 use crate::types::{CpuCoreUsage, ProcessEntry, ResourcesPayload};
@@ -29,7 +29,13 @@ impl SystemPoller {
             let mut users = Users::new_with_refreshed_list();
 
             loop {
-                sys.refresh_all();
+                sys.refresh_cpu_specifics(CpuRefreshKind::everything());
+                sys.refresh_memory();
+                sys.refresh_processes_specifics(
+                    ProcessesToUpdate::All,
+                    true,
+                    ProcessRefreshKind::everything(),
+                );
                 users.refresh_list();
 
                 self.emit_processes(&sys, &users);
@@ -68,7 +74,9 @@ impl SystemPoller {
                 .partial_cmp(&a.cpu_percent)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        let _ = self.handle.emit("processes-update", entries);
+        if let Err(e) = self.handle.emit("processes-update", entries) {
+            eprintln!("emit processes-update failed: {e}");
+        }
     }
 
     fn emit_resources(&self, sys: &System) {
@@ -93,7 +101,9 @@ impl SystemPoller {
             swap_total_mb: sys.total_swap() as f64 / 1_048_576.0,
         };
 
-        let _ = self.handle.emit("resources-update", payload);
+        if let Err(e) = self.handle.emit("resources-update", payload) {
+            eprintln!("emit resources-update failed: {e}");
+        }
     }
 }
 
