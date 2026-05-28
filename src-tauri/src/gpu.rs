@@ -14,6 +14,14 @@ pub fn detect_gpu() -> GpuBackend {
     if let Ok(nvml) = Nvml::init() {
         return GpuBackend::Nvidia(nvml);
     }
+    // Fallback: systems without the -dev package ship only the versioned runtime
+    // lib (libnvidia-ml.so.1), so the default "libnvidia-ml.so" load fails.
+    if let Ok(nvml) = Nvml::builder()
+        .lib_path(std::ffi::OsStr::new("libnvidia-ml.so.1"))
+        .init()
+    {
+        return GpuBackend::Nvidia(nvml);
+    }
     let out = Command::new("rocm-smi").arg("--showproductname").output();
     if out.map(|o| o.status.success()).unwrap_or(false) {
         return GpuBackend::Amd;

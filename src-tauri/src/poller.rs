@@ -36,6 +36,7 @@ impl SystemPoller {
                     .with_processes(ProcessRefreshKind::everything()),
             );
             let mut users = Users::new_with_refreshed_list();
+            let gpu_available = !matches!(self.gpu_backend, crate::gpu::GpuBackend::None);
 
             loop {
                 sys.refresh_cpu_specifics(CpuRefreshKind::everything());
@@ -54,6 +55,9 @@ impl SystemPoller {
                 self.emit_network();
                 self.emit_disks();
                 crate::gpu::poll_gpu(&self.gpu_backend, &self.handle);
+                // Re-broadcast each tick: the one-shot emit at setup races the
+                // webview mounting its listener and is usually missed.
+                let _ = self.handle.emit("gpu-available", gpu_available);
 
                 thread::sleep(Duration::from_secs(1));
             }

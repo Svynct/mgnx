@@ -23,11 +23,9 @@ pub fn run() {
             commands::process_details,
         ])
         .setup(|app| {
-            use tauri::Emitter;
-            let poller = poller::SystemPoller::new(app.handle().clone());
-            let gpu_available = !matches!(poller.gpu_backend, gpu::GpuBackend::None);
-            poller.start();
-            app.emit("gpu-available", gpu_available)?;
+            // The poller broadcasts `gpu-available` every tick (the frontend
+            // listener isn't ready at setup time, so a one-shot emit is missed).
+            poller::SystemPoller::new(app.handle().clone()).start();
             Ok(())
         })
         .run(tauri::generate_context!())
