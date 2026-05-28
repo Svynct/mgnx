@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-processes.png" alt="mgnx — Processes tab with the process tree, CPU heat coloring, and action bar" width="820">
+  <img src="assets/screenshot-processes.png?v=2" alt="mgnx — Processes tab with the process tree, CPU heat coloring, and action bar" width="745">
 </p>
 
 ---
