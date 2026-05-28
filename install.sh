@@ -93,31 +93,24 @@ build() {
     npm install --silent
 
     info "Building mgnx (this takes a few minutes)..."
-    cargo tauri build
+    # Tauri CLI ships as the npm devDependency @tauri-apps/cli (installed above),
+    # not the `cargo tauri` subcommand — invoke it through the npm script.
+    # --no-bundle: we only need the compiled binary, not deb/rpm/AppImage. It's
+    # faster and skips AppImage's flaky linuxdeploy download step.
+    npm run tauri -- build --no-bundle
 
     ok "Build complete"
 }
 
 # ── Install binary ────────────────────────────────────────────────────────────
 install_binary() {
-    # Prefer AppImage (self-contained), fall back to raw binary
-    local appimage
-    appimage="$(find "$REPO_ROOT/src-tauri/target/release/bundle/appimage" \
-        -name "*.AppImage" 2>/dev/null | head -1 || true)"
+    local bin="$REPO_ROOT/src-tauri/target/release/$BINARY_NAME"
+    [[ -f "$bin" ]] || die "Build artifact not found at $bin"
 
     mkdir -p "$INSTALL_DIR"
-
-    if [[ -n "$appimage" ]]; then
-        cp "$appimage" "$INSTALL_DIR/$BINARY_NAME"
-        chmod +x "$INSTALL_DIR/$BINARY_NAME"
-        ok "Installed AppImage → $INSTALL_DIR/$BINARY_NAME"
-    else
-        local bin="$REPO_ROOT/src-tauri/target/release/$BINARY_NAME"
-        [[ -f "$bin" ]] || die "Build artifact not found at $bin"
-        cp "$bin" "$INSTALL_DIR/$BINARY_NAME"
-        chmod +x "$INSTALL_DIR/$BINARY_NAME"
-        ok "Installed binary → $INSTALL_DIR/$BINARY_NAME"
-    fi
+    cp "$bin" "$INSTALL_DIR/$BINARY_NAME"
+    chmod +x "$INSTALL_DIR/$BINARY_NAME"
+    ok "Installed binary → $INSTALL_DIR/$BINARY_NAME"
 
     if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
         printf '\n\e[1;33mNote:\e[0m Add %s to your PATH:\n' "$INSTALL_DIR"

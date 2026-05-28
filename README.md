@@ -31,6 +31,12 @@ Override the install directory:
 INSTALL_DIR=/usr/local/bin ./install.sh
 ```
 
+Uninstall (removes the binary; leaves shared system deps):
+
+```bash
+./uninstall.sh
+```
+
 ---
 
 ## Requirements
@@ -47,12 +53,12 @@ INSTALL_DIR=/usr/local/bin ./install.sh
 
 ```bash
 npm install
-cargo tauri dev
+npm run tauri -- dev
 ```
 
 Run tests:
 
 ```bash
-cargo test                  # Rust backend
+cd src-tauri && cargo test  # Rust backend
 npm test                    # Frontend (vitest)
 ```
