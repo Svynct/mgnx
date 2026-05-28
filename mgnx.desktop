@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=mgnx
+GenericName=System Monitor
+Comment=Keyboard-driven system monitor for Linux
+Exec=mgnx
+Icon=mgnx
+Terminal=false
+Categories=System;Monitor;
+Keywords=system;monitor;process;cpu;gpu;resources;htop;
+StartupWMClass=mgnx
