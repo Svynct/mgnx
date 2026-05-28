@@ -55,7 +55,7 @@ cd mgnx
 ./install.sh
 ```
 
-Works on **Arch**, **Debian/Ubuntu**, and **Fedora** — installs Rust and Node.js if missing, builds the app, and drops the binary at `~/.local/bin/mgnx`.
+Works on **Arch**, **Debian/Ubuntu**, and **Fedora** — installs Rust and Node.js if missing, builds the app, drops the binary at `~/.local/bin/mgnx`, and registers an app-menu entry.
 
 ```bash
 INSTALL_DIR=/usr/local/bin ./install.sh   # custom location

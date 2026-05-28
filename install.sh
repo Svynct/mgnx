@@ -118,6 +118,26 @@ install_binary() {
     fi
 }
 
+# ── Desktop entry + icon (app-menu integration) ────────────────────────────────
+install_desktop_entry() {
+    local data_dir="${XDG_DATA_HOME:-$HOME/.local/share}"
+    local apps_dir="$data_dir/applications"
+    local icon_dir="$data_dir/icons/hicolor/128x128/apps"
+
+    mkdir -p "$apps_dir" "$icon_dir"
+    cp "$REPO_ROOT/src-tauri/icons/128x128.png" "$icon_dir/$BINARY_NAME.png"
+
+    # Point Exec/Icon at absolute installed paths so it works regardless of PATH
+    # or icon-cache state.
+    sed -e "s|^Exec=.*|Exec=$INSTALL_DIR/$BINARY_NAME|" \
+        -e "s|^Icon=.*|Icon=$icon_dir/$BINARY_NAME.png|" \
+        "$REPO_ROOT/$BINARY_NAME.desktop" > "$apps_dir/$BINARY_NAME.desktop"
+
+    command -v update-desktop-database >/dev/null 2>&1 && \
+        update-desktop-database "$apps_dir" >/dev/null 2>&1 || true
+    ok "Installed desktop entry → $apps_dir/$BINARY_NAME.desktop"
+}
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 main() {
     echo
@@ -129,9 +149,10 @@ main() {
     install_node
     build
     install_binary
+    install_desktop_entry
 
     echo
-    ok "mgnx is ready. Run: $BINARY_NAME"
+    ok "mgnx is ready. Run: $BINARY_NAME (or launch it from your app menu)"
     echo
 }
 
