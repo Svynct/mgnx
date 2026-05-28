@@ -6,3 +6,6 @@ target/
 src-tauri/target/
 *.local
 .env
+
+# Never commit specs or plans (superpowers writes them here)
+docs/superpowers/
