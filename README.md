@@ -20,7 +20,9 @@
   <code>Processes</code> · <code>Resources</code> · <code>Network</code> · <code>Disk</code> · <code>GPU</code>
 </p>
 
-<!-- A window screenshot looks great right here — drop one in assets/ and link it. -->
+<p align="center">
+  <img src="assets/screenshot-processes.png" alt="mgnx — Processes tab with the process tree, CPU heat coloring, and action bar" width="820">
+</p>
 
 ---
 
