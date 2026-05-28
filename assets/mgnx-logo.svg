@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="170" viewBox="0 0 420 170" role="img" aria-label="mgnx — keyboard-driven system monitor for Linux">
+  <!-- self-contained dark panel so it reads correctly on GitHub light or dark themes -->
+  <rect x="0" y="0" width="420" height="170" rx="16" fill="#24273a"/>
+
+  <!-- heat-grid emblem (3x3), echoes the app's CPU-heat colors / per-core bars -->
+  <g>
+    <rect x="34"  y="30" width="22" height="22" rx="3" fill="#a6da95"/>
+    <rect x="62"  y="30" width="22" height="22" rx="3" fill="#eed49f"/>
+    <rect x="90"  y="30" width="22" height="22" rx="3" fill="#c6a0f6"/>
+    <rect x="34"  y="58" width="22" height="22" rx="3" fill="#363a4f"/>
+    <rect x="62"  y="58" width="22" height="22" rx="3" fill="#c6a0f6"/>
+    <rect x="90"  y="58" width="22" height="22" rx="3" fill="#8aadf4"/>
+    <rect x="34"  y="86" width="22" height="22" rx="3" fill="#ed8796"/>
+    <rect x="62"  y="86" width="22" height="22" rx="3" fill="#363a4f"/>
+    <rect x="90"  y="86" width="22" height="22" rx="3" fill="#a6da95"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="136" y="86" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace"
+        font-size="46" font-weight="800" letter-spacing="1" fill="#cad3f5">mgnx</text>
+
+  <!-- tagline -->
+  <text x="34" y="138" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace"
+        font-size="14" letter-spacing="0.5" fill="#6e738d">keyboard-driven system monitor for Linux</text>
+</svg>

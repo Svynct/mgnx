@@ -1,4 +1,6 @@
-# mgnx
+<p align="center">
+  <img src="assets/mgnx-logo.svg" alt="mgnx — keyboard-driven system monitor for Linux" width="420">
+</p>
 
 System monitor for Linux. Built with Tauri v2 + React.
 
