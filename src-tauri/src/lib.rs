@@ -1,4 +1,5 @@
 pub mod types;
+pub mod parse;
 pub mod poller;
 pub mod gpu;
 pub mod commands;

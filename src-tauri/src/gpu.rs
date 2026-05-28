@@ -37,6 +37,14 @@ pub fn poll_gpu(backend: &GpuBackend, handle: &AppHandle) {
     }
 }
 
+// NVML only reports the pid + VRAM for a GPU process, not its name; resolve it
+// from /proc/<pid>/comm (empty when the process has already exited).
+fn process_name(pid: u32) -> String {
+    std::fs::read_to_string(format!("/proc/{pid}/comm"))
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default()
+}
+
 fn poll_nvidia(nvml: &Nvml, handle: &AppHandle) {
     let Ok(device) = nvml.device_by_index(0) else { return };
 
@@ -64,7 +72,7 @@ fn poll_nvidia(nvml: &Nvml, handle: &AppHandle) {
         .into_iter()
         .map(|p| GpuProcess {
             pid: p.pid,
-            name: String::new(),
+            name: process_name(p.pid),
             vram_mb: match p.used_gpu_memory {
                 UsedGpuMemory::Used(bytes) => bytes / 1_048_576,
                 UsedGpuMemory::Unavailable => 0,
@@ -99,50 +107,10 @@ fn poll_amd(handle: &AppHandle) {
     let Ok(out) = out else { return };
     let Ok(json) = serde_json::from_slice::<serde_json::Value>(&out.stdout) else { return };
 
-    // rocm-smi JSON keys vary by driver version; use safe .get() chains
-    let card = json.get("card0").or_else(|| json.get("GPU[0]"));
-    let Some(card) = card else { return };
-
-    let payload = GpuPayload {
-        vendor: "amd".to_string(),
-        name: card["Card series"].as_str().unwrap_or("AMD GPU").to_string(),
-        driver_version: card["Driver version"].as_str().unwrap_or("").to_string(),
-        compute_version: card["ROCm version"].as_str().unwrap_or("").to_string(),
-        usage_percent: card["GPU use (%)"]
-            .as_str()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0.0),
-        vram_used_mb: card["VRAM Total Used Memory (B)"]
-            .as_str()
-            .and_then(|s| s.parse::<u64>().ok())
-            .map(|b| b / 1_048_576)
-            .unwrap_or(0),
-        vram_total_mb: card["VRAM Total Memory (B)"]
-            .as_str()
-            .and_then(|s| s.parse::<u64>().ok())
-            .map(|b| b / 1_048_576)
-            .unwrap_or(0),
-        temperature_c: card["Temperature (Sensor edge) (C)"]
-            .as_str()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0.0),
-        power_draw_w: card["Average Graphics Package Power (W)"]
-            .as_str()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0.0),
-        power_limit_w: 0.0,
-        core_clock_mhz: card["sclk clock speed:"]
-            .as_str()
-            .and_then(|s| s.trim_end_matches("Mhz").trim().parse().ok())
-            .unwrap_or(0),
-        mem_clock_mhz: card["mclk clock speed:"]
-            .as_str()
-            .and_then(|s| s.trim_end_matches("Mhz").trim().parse().ok())
-            .unwrap_or(0),
-        processes: vec![],
-    };
-
-    let _ = handle.emit("gpu-update", payload);
+    // rocm-smi JSON keys vary by driver version; parsing lives in parse::amd_payload.
+    if let Some(payload) = crate::parse::amd_payload(&json) {
+        let _ = handle.emit("gpu-update", payload);
+    }
 }
 
 #[cfg(test)]
@@ -170,48 +138,5 @@ mod tests {
         // poll_gpu requires &AppHandle which can't be constructed in unit tests;
         // so we test the None arm directly via pattern match instead.
         assert!(matches!(backend, GpuBackend::None));
-    }
-
-    #[test]
-    fn amd_json_parse_missing_card_returns_early() {
-        // If rocm-smi JSON lacks "card0"/"GPU[0]", poll_amd returns without panic.
-        // We can't call poll_amd directly (needs AppHandle), so we verify the
-        // parsing logic by replicating it inline.
-        let json: serde_json::Value = serde_json::json!({"other_key": "value"});
-        let card = json.get("card0").or_else(|| json.get("GPU[0]"));
-        assert!(card.is_none());
-    }
-
-    #[test]
-    fn amd_json_parse_valid_card() {
-        let json: serde_json::Value = serde_json::json!({
-            "card0": {
-                "Card series": "Radeon RX 7900",
-                "Driver version": "6.2.0",
-                "ROCm version": "6.0",
-                "GPU use (%)": "45",
-                "VRAM Total Used Memory (B)": "2147483648",
-                "VRAM Total Memory (B)": "17179869184",
-                "Temperature (Sensor edge) (C)": "72.0",
-                "Average Graphics Package Power (W)": "180.5",
-                "sclk clock speed:": "2500Mhz",
-                "mclk clock speed:": "1000Mhz"
-            }
-        });
-        let card = json.get("card0").unwrap();
-        assert_eq!(card["Card series"].as_str().unwrap(), "Radeon RX 7900");
-        let usage: f32 = card["GPU use (%)"].as_str().and_then(|s| s.parse().ok()).unwrap_or(0.0);
-        assert!((usage - 45.0).abs() < f32::EPSILON);
-        let vram_used: u64 = card["VRAM Total Used Memory (B)"]
-            .as_str()
-            .and_then(|s| s.parse().ok())
-            .map(|b: u64| b / 1_048_576)
-            .unwrap_or(0);
-        assert_eq!(vram_used, 2048);
-        let core_clk: u32 = card["sclk clock speed:"]
-            .as_str()
-            .and_then(|s| s.trim_end_matches("Mhz").trim().parse().ok())
-            .unwrap_or(0);
-        assert_eq!(core_clk, 2500);
     }
 }

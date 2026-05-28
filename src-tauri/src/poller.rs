@@ -201,80 +201,25 @@ impl SystemPoller {
     }
 }
 
-// Proportional Set Size (MB) from /proc/<pid>/smaps_rollup. PSS divides each
-// shared page across the processes mapping it, so summing PSS over a tree never
-// exceeds physical RAM (unlike RSS). Returns None when the file is unreadable —
-// kernel threads (no mm) or processes owned by another user.
+// Reads /proc/<pid>/smaps_rollup and returns its PSS in MB (None when unreadable —
+// kernel threads or processes owned by another user). Parsing lives in parse::pss_mb.
 fn read_pss_mb(pid: u32) -> Option<f64> {
     let content = std::fs::read_to_string(format!("/proc/{pid}/smaps_rollup")).ok()?;
-    for line in content.lines() {
-        if let Some(rest) = line.strip_prefix("Pss:") {
-            let kb: f64 = rest.split_whitespace().next()?.parse().ok()?;
-            return Some(kb / 1024.0);
-        }
-    }
-    None
+    crate::parse::pss_mb(&content)
 }
 
 fn parse_proc_connections() -> Vec<NetworkConnection> {
     let mut conns = Vec::new();
     for (path, proto) in &[("/proc/net/tcp", "TCP"), ("/proc/net/tcp6", "TCP6")] {
         let Ok(content) = std::fs::read_to_string(path) else { continue };
-        for line in content.lines().skip(1) {
-            let cols: Vec<&str> = line.split_whitespace().collect();
-            if cols.len() < 4 {
-                continue;
-            }
-            if let (Some(local_port), Some(remote), Some(state)) =
-                (parse_hex_port(cols[1]), format_hex_addr(cols[2]), state_name(cols[3]))
-            {
-                conns.push(NetworkConnection {
-                    proto: proto.to_string(),
-                    local_port,
-                    remote_addr: remote,
-                    state: state.to_string(),
-                });
-            }
-        }
+        conns.extend(
+            content
+                .lines()
+                .skip(1)
+                .filter_map(|line| crate::parse::connection_line(proto, line)),
+        );
     }
     conns
-}
-
-fn parse_hex_port(addr: &str) -> Option<u16> {
-    addr.split(':').nth(1).and_then(|p| u16::from_str_radix(p, 16).ok())
-}
-
-fn format_hex_addr(addr: &str) -> Option<String> {
-    let parts: Vec<&str> = addr.split(':').collect();
-    if parts.len() != 2 {
-        return None;
-    }
-    let ip_hex = parts[0];
-    let port = u16::from_str_radix(parts[1], 16).ok()?;
-    if ip_hex.len() == 8 {
-        let n = u32::from_str_radix(ip_hex, 16).ok()?;
-        let b = n.to_le_bytes();
-        Some(format!("{}.{}.{}.{}:{}", b[0], b[1], b[2], b[3], port))
-    } else {
-        Some(format!("[ipv6]:{}", port))
-    }
-}
-
-fn state_name(hex: &str) -> Option<&'static str> {
-    match hex {
-        "01" => Some("ESTABLISHED"),
-        "02" => Some("SYN_SENT"),
-        "03" => Some("SYN_RECV"),
-        "04" => Some("FIN_WAIT1"),
-        "05" => Some("FIN_WAIT2"),
-        "06" => Some("TIME_WAIT"),
-        "07" => Some("CLOSE"),
-        "08" => Some("CLOSE_WAIT"),
-        "09" => Some("LAST_ACK"),
-        "0A" => Some("LISTEN"),
-        "0B" => Some("CLOSING"),
-        _ => None,
-    }
 }
 
 #[cfg(test)]
@@ -371,32 +316,5 @@ mod tests {
         let bytes_16gb: u64 = 16 * 1024 * 1024 * 1024;
         let mb_16gb = bytes_16gb as f64 / 1_048_576.0;
         assert!((mb_16gb - 16384.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn parse_hex_port_returns_decimal_port() {
-        assert_eq!(parse_hex_port("0100007F:0050"), Some(80)); // port 0x0050 = 80
-        assert_eq!(parse_hex_port("0100007F:1F90"), Some(8080)); // 0x1F90 = 8080
-        assert_eq!(parse_hex_port("no_colon"), None);
-        assert_eq!(parse_hex_port(":ZZZZ"), None); // invalid hex
-    }
-
-    #[test]
-    fn format_hex_addr_decodes_ipv4_little_endian() {
-        // 0100007F = 127.0.0.1 in little-endian hex, port 0x0050 = 80
-        let result = format_hex_addr("0100007F:0050");
-        assert_eq!(result, Some("127.0.0.1:80".to_string()));
-
-        // More than two colon-separated parts is rejected.
-        let none = format_hex_addr("too:many:colons");
-        assert!(none.is_none());
-    }
-
-    #[test]
-    fn state_name_maps_known_states() {
-        assert_eq!(state_name("01"), Some("ESTABLISHED"));
-        assert_eq!(state_name("0A"), Some("LISTEN"));
-        assert_eq!(state_name("FF"), None);
-        assert_eq!(state_name(""), None);
     }
 }
