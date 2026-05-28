@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { ProcessEntry } from '../../stores/processStore';
 import {
   buildVisibleTree,
-  hoistPinnedTree,
+  ancestorChain,
+  ancestorPids,
   flatToTreeRows,
   TreeRow,
 } from '../../lib/processTree';
@@ -23,84 +24,68 @@ function proc(over: Partial<ProcessEntry> & { pid: number }): ProcessEntry {
 }
 
 const pids = (rows: TreeRow[]) => rows.map((r) => r.proc.pid);
+// Empty toggle set = pure depth default: roots open one level, deeper folded.
+const DEFAULT = new Set<number>();
+const NO_PINS = new Set<number>();
 
-describe('buildVisibleTree — roots', () => {
+describe('buildVisibleTree — depth default', () => {
   it('treats ppid 0 as a root', () => {
-    const rows = buildVisibleTree([proc({ pid: 1, ppid: 0 })], new Set(), 'cpu');
+    const rows = buildVisibleTree([proc({ pid: 1, ppid: 0 })], DEFAULT, 'cpu', NO_PINS);
     expect(rows).toHaveLength(1);
     expect(rows[0].depth).toBe(0);
   });
 
   it('treats an orphan (ppid not in the snapshot) as a root', () => {
-    // ppid 999 is not present, so pid 5 is a top-level root.
-    const rows = buildVisibleTree([proc({ pid: 5, ppid: 999 })], new Set(), 'cpu');
-    expect(rows).toHaveLength(1);
-    expect(rows[0].proc.pid).toBe(5);
-    expect(rows[0].depth).toBe(0);
+    const rows = buildVisibleTree([proc({ pid: 5, ppid: 999 })], DEFAULT, 'cpu', NO_PINS);
+    expect(pids(rows)).toEqual([5]);
   });
 
-  it('does not emit children of a collapsed root', () => {
-    const rows = buildVisibleTree(
-      [proc({ pid: 1, ppid: 0 }), proc({ pid: 2, ppid: 1 })],
-      new Set(),
-      'cpu',
-    );
+  it('opens roots one level by default (direct children shown, folded)', () => {
+    const tree = [proc({ pid: 1, ppid: 0 }), proc({ pid: 2, ppid: 1 }), proc({ pid: 3, ppid: 2 })];
+    const rows = buildVisibleTree(tree, DEFAULT, 'cpu', NO_PINS);
+    expect(pids(rows)).toEqual([1, 2]); // grandchild 3 hidden under folded child 2
+    expect(rows[0].expanded).toBe(true);  // root open
+    expect(rows[1].expanded).toBe(false); // depth-1 child folded
+  });
+
+  it('folding a root (toggled) hides its children', () => {
+    const tree = [proc({ pid: 1, ppid: 0 }), proc({ pid: 2, ppid: 1 })];
+    const rows = buildVisibleTree(tree, new Set([1]), 'cpu', NO_PINS);
     expect(pids(rows)).toEqual([1]);
-    expect(rows[0].hasChildren).toBe(true);
     expect(rows[0].expanded).toBe(false);
+  });
+
+  it('toggling a depth-1 node opens it one more level', () => {
+    const tree = [proc({ pid: 1, ppid: 0 }), proc({ pid: 2, ppid: 1 }), proc({ pid: 3, ppid: 2 })];
+    const rows = buildVisibleTree(tree, new Set([2]), 'cpu', NO_PINS);
+    expect(pids(rows)).toEqual([1, 2, 3]); // 2 opened -> grandchild 3 revealed (folded)
+    expect(rows.map((r) => r.depth)).toEqual([0, 1, 2]);
   });
 });
 
-describe('buildVisibleTree — accumulation', () => {
+describe('buildVisibleTree — accumulation (path-sum)', () => {
   const tree = [
     proc({ pid: 1, ppid: 0, cpu_percent: 1, memory_mb: 10 }),
     proc({ pid: 2, ppid: 1, cpu_percent: 2, memory_mb: 20 }),
     proc({ pid: 3, ppid: 2, cpu_percent: 4, memory_mb: 40 }), // grandchild
   ];
 
-  it('collapsed parent shows self + all descendants', () => {
-    const rows = buildVisibleTree(tree, new Set(), 'cpu');
-    expect(rows).toHaveLength(1);
+  it('rolls every descendant into the root total', () => {
+    const rows = buildVisibleTree(tree, new Set([1]), 'cpu', NO_PINS); // fold root
     expect(rows[0].cpuAccum).toBe(7); // 1 + 2 + 4
     expect(rows[0].memAccum).toBe(70); // 10 + 20 + 40
   });
 
-  it('leaf shows its own values as accum', () => {
-    const rows = buildVisibleTree([proc({ pid: 9, cpu_percent: 3, memory_mb: 30 })], new Set(), 'cpu');
-    expect(rows[0].hasChildren).toBe(false);
+  it('a leaf accum is just its own usage', () => {
+    const rows = buildVisibleTree([proc({ pid: 9, cpu_percent: 3, memory_mb: 30 })], DEFAULT, 'cpu', NO_PINS);
     expect(rows[0].cpuAccum).toBe(3);
     expect(rows[0].memAccum).toBe(30);
   });
 
-  it('expanded parent still carries its full accum on the row (renderer decides own vs accum)', () => {
-    const rows = buildVisibleTree(tree, new Set([1]), 'cpu');
-    // Root expanded -> root + child 2 (child 2 collapsed, so grandchild hidden).
-    expect(pids(rows)).toEqual([1, 2]);
-    expect(rows[0].expanded).toBe(true);
-    expect(rows[0].cpuAccum).toBe(7); // accum is still computed; the row's own
-    expect(rows[0].proc.cpu_percent).toBe(1); // value is available separately
-  });
-});
-
-describe('buildVisibleTree — expand reveals direct children only', () => {
-  const tree = [
-    proc({ pid: 1, ppid: 0 }),
-    proc({ pid: 2, ppid: 1 }),
-    proc({ pid: 3, ppid: 2 }),
-  ];
-
-  it('expanding the root reveals its direct child at depth 1, not the grandchild', () => {
-    const rows = buildVisibleTree(tree, new Set([1]), 'cpu');
-    expect(pids(rows)).toEqual([1, 2]);
-    expect(rows[1].depth).toBe(1);
-    expect(rows[1].hasChildren).toBe(true);
-    expect(rows[1].expanded).toBe(false);
-  });
-
-  it('expanding root + child reveals the grandchild at depth 2', () => {
-    const rows = buildVisibleTree(tree, new Set([1, 2]), 'cpu');
-    expect(pids(rows)).toEqual([1, 2, 3]);
-    expect(rows.map((r) => r.depth)).toEqual([0, 1, 2]);
+  it('a mid node sums itself plus its subtree', () => {
+    // Fully open: 1 -> 2 -> 3. Node 2 accum = 2 + 4 = 6.
+    const rows = buildVisibleTree(tree, new Set([2]), 'cpu', NO_PINS);
+    expect(rows.find((r) => r.proc.pid === 2)!.cpuAccum).toBe(6);
   });
 });
 
@@ -112,121 +97,117 @@ describe('buildVisibleTree — sorting', () => {
   ];
 
   it('sorts roots by cpuAccum descending', () => {
-    expect(pids(buildVisibleTree(roots, new Set(), 'cpu'))).toEqual([2, 3, 1]);
+    expect(pids(buildVisibleTree(roots, DEFAULT, 'cpu', NO_PINS))).toEqual([2, 3, 1]);
   });
 
   it('sorts roots by memAccum descending', () => {
-    expect(pids(buildVisibleTree(roots, new Set(), 'mem'))).toEqual([1, 3, 2]);
+    expect(pids(buildVisibleTree(roots, DEFAULT, 'mem', NO_PINS))).toEqual([1, 3, 2]);
   });
 
   it('sorts roots by name ascending (localeCompare)', () => {
-    expect(pids(buildVisibleTree(roots, new Set(), 'name'))).toEqual([2, 3, 1]);
+    expect(pids(buildVisibleTree(roots, DEFAULT, 'name', NO_PINS))).toEqual([2, 3, 1]);
   });
 
-  it('sorts children by accumulated subtree weight, not own value', () => {
-    // Parent 1 has two children: child 3 (own cpu 0) owns a heavy grandchild;
-    // child 2 has cpu 1. By cpuAccum, child 3 (0+10) should lead child 2 (1).
+  it('sorts children by accumulated subtree weight', () => {
     const tree = [
       proc({ pid: 1, ppid: 0, cpu_percent: 0 }),
       proc({ pid: 2, ppid: 1, cpu_percent: 1 }),
       proc({ pid: 3, ppid: 1, cpu_percent: 0 }),
       proc({ pid: 4, ppid: 3, cpu_percent: 10 }),
     ];
-    const rows = buildVisibleTree(tree, new Set([1]), 'cpu');
+    // Child 3's subtree (0 + 10) outweighs child 2 (1), so 3 leads 2.
+    const rows = buildVisibleTree(tree, DEFAULT, 'cpu', NO_PINS);
     expect(pids(rows)).toEqual([1, 3, 2]);
+  });
+});
+
+describe('buildVisibleTree — pinned hoisting', () => {
+  it('floats a pinned root above its siblings regardless of sort', () => {
+    const roots = [
+      proc({ pid: 1, ppid: 0, cpu_percent: 1 }),
+      proc({ pid: 2, ppid: 0, cpu_percent: 9 }),
+      proc({ pid: 3, ppid: 0, cpu_percent: 5 }),
+    ];
+    expect(pids(buildVisibleTree(roots, DEFAULT, 'cpu', new Set([1])))).toEqual([1, 2, 3]);
+    expect(buildVisibleTree(roots, DEFAULT, 'cpu', new Set([1]))[0].pinned).toBe(true);
+  });
+
+  it('floats the pinned node to the top of its level (child under an open root)', () => {
+    const tree = [
+      proc({ pid: 1, ppid: 0 }),
+      proc({ pid: 2, ppid: 1, cpu_percent: 1 }),
+      proc({ pid: 3, ppid: 1, cpu_percent: 5 }),
+    ];
+    const pinned = ancestorPids(tree, 2); // {1, 2}
+    const rows = buildVisibleTree(tree, DEFAULT, 'cpu', pinned);
+    expect(pids(rows)).toEqual([1, 2, 3]); // 2 hoisted above 3 despite lower cpu
+    expect(rows.find((r) => r.proc.pid === 2)!.pinned).toBe(true);
+    expect(rows.find((r) => r.proc.pid === 3)!.pinned).toBe(false);
   });
 });
 
 describe('buildVisibleTree — cycle safety', () => {
   it('does not loop on a self-referential process', () => {
-    // pid 1 is its own parent. ppid 1 IS a known pid, so it is not a root by the
-    // ppid rule; with no real root the result is empty but must not hang.
-    const rows = buildVisibleTree([proc({ pid: 1, ppid: 1 })], new Set([1]), 'cpu');
+    const rows = buildVisibleTree([proc({ pid: 1, ppid: 1 })], DEFAULT, 'cpu', NO_PINS);
     expect(rows).toEqual([]);
   });
 
-  it('does not re-descend a node already seen in a 2-cycle under a real root', () => {
-    // 0-rooted chain 1 -> 2, plus a back-edge 2 -> ... none; build a cycle 3<->4
-    // hanging off root 1 via 2 -> 3, 3 -> 4, 4 -> 3 (back edge).
+  it('terminates on a deep chain opened all the way', () => {
     const tree = [
       proc({ pid: 1, ppid: 0 }),
       proc({ pid: 2, ppid: 1 }),
       proc({ pid: 3, ppid: 2 }),
       proc({ pid: 4, ppid: 3 }),
     ];
-    // Manufacture a back-edge by making 3's parent 4 as well is impossible (single
-    // ppid); instead verify a fully-expanded deep chain terminates.
-    const rows = buildVisibleTree(tree, new Set([1, 2, 3]), 'cpu');
+    const rows = buildVisibleTree(tree, new Set([2, 3]), 'cpu', NO_PINS);
     expect(pids(rows)).toEqual([1, 2, 3, 4]);
   });
 
   it('skips a child whose pid already appeared on the ancestor path', () => {
-    // Two processes both claim each other as parent: 10 -> 11 and 11 -> 10.
-    // Neither has ppid 0 and both pids exist, so neither is a root => empty,
-    // and the build must terminate without infinite recursion.
     const rows = buildVisibleTree(
       [proc({ pid: 10, ppid: 11 }), proc({ pid: 11, ppid: 10 })],
-      new Set([10, 11]),
+      DEFAULT,
       'cpu',
+      NO_PINS,
     );
     expect(rows).toEqual([]);
   });
 });
 
-describe('hoistPinnedTree', () => {
-  // Two subtrees: root 1 (with child 2) and root 3 (with child 4), then leaf 5.
-  function sample(): TreeRow[] {
-    return buildVisibleTree(
-      [
-        proc({ pid: 1, ppid: 0, cpu_percent: 9 }),
-        proc({ pid: 2, ppid: 1, cpu_percent: 0 }),
-        proc({ pid: 3, ppid: 0, cpu_percent: 5 }),
-        proc({ pid: 4, ppid: 3, cpu_percent: 0 }),
-        proc({ pid: 5, ppid: 0, cpu_percent: 1 }),
-      ],
-      new Set([1, 3]), // expand both parents so segments span multiple rows
-      'cpu',
-    );
-  }
+describe('ancestorChain / ancestorPids', () => {
+  const chain = [proc({ pid: 1, ppid: 0 }), proc({ pid: 2, ppid: 1 }), proc({ pid: 3, ppid: 2 })];
 
-  it('returns rows unchanged when nothing is pinned', () => {
-    const rows = sample();
-    expect(hoistPinnedTree(rows, [])).toBe(rows);
+  it('returns the ordered path leaf -> root', () => {
+    expect(ancestorChain(chain, 3)).toEqual([3, 2, 1]);
   });
 
-  it('floats a pinned root segment (root + children) to the top', () => {
-    const rows = sample(); // order: 1,2,3,4,5
-    expect(pids(hoistPinnedTree(rows, [3]))).toEqual([3, 4, 1, 2, 5]);
+  it('returns just the pid for a root', () => {
+    expect(ancestorChain(chain, 1)).toEqual([1]);
   });
 
-  it('floats the whole subtree when a CHILD is pinned, keeping the root attached', () => {
-    const rows = sample();
-    // pinning child 4 must hoist its root segment (3,4) ahead of segment (1,2).
-    expect(pids(hoistPinnedTree(rows, [4]))).toEqual([3, 4, 1, 2, 5]);
+  it('returns empty for a pid not in the snapshot', () => {
+    expect(ancestorChain(chain, 99)).toEqual([]);
   });
 
-  it('preserves relative order among pinned and among unpinned segments', () => {
-    const rows = sample();
-    // pin both segment-3 and the leaf 5: pinned kept in original order (3.. then 5).
-    expect(pids(hoistPinnedTree(rows, [3, 5]))).toEqual([3, 4, 5, 1, 2]);
+  it('terminates on a cycle', () => {
+    const cyclic = [proc({ pid: 10, ppid: 11 }), proc({ pid: 11, ppid: 10 })];
+    expect(ancestorChain(cyclic, 10)).toEqual([10, 11]);
   });
 
-  it('does not mutate the input array', () => {
-    const rows = sample();
-    const snapshot = pids(rows);
-    hoistPinnedTree(rows, [4]);
-    expect(pids(rows)).toEqual(snapshot);
+  it('ancestorPids returns the chain as a set', () => {
+    expect([...ancestorPids(chain, 3)].sort()).toEqual([1, 2, 3]);
   });
 });
 
 describe('flatToTreeRows', () => {
-  it('maps each process to a depth-0 leaf carrying its own values', () => {
+  it('maps each process to a depth-0 leaf with own usage as accum', () => {
     const rows = flatToTreeRows([proc({ pid: 7, cpu_percent: 3, memory_mb: 30 })]);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       depth: 0,
       hasChildren: false,
       expanded: false,
+      pinned: false,
       cpuAccum: 3,
       memAccum: 30,
     });

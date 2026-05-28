@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useProcessStore, adjacentPid, hoistPinned, ProcessEntry } from '../../stores/processStore';
+import { useProcessStore, adjacentPid, ProcessEntry } from '../../stores/processStore';
 
 beforeEach(() => {
-  useProcessStore.setState({ processes: [], filter: '', sortBy: 'cpu', pinned: [], expanded: [] });
+  useProcessStore.setState({ processes: [], filter: '', sortBy: 'cpu', pinnedPid: null, toggled: [] });
 });
 
-function proc(pid: number): ProcessEntry {
-  return { pid, ppid: 0, name: `p${pid}`, cpu_percent: 0, memory_mb: 0, status: 'R', user: 'u', threads: 1 };
+function proc(pid: number, ppid = 0): ProcessEntry {
+  return { pid, ppid, name: `p${pid}`, cpu_percent: 0, memory_mb: 0, status: 'R', user: 'u', threads: 1 };
 }
 
 describe('processStore', () => {
@@ -68,57 +68,60 @@ describe('adjacentPid', () => {
   });
 });
 
-describe('togglePin', () => {
-  it('adds a pid then removes it', () => {
-    useProcessStore.getState().togglePin(42);
-    expect(useProcessStore.getState().pinned).toEqual([42]);
-    useProcessStore.getState().togglePin(42);
-    expect(useProcessStore.getState().pinned).toEqual([]);
+describe('togglePin (single pin + ancestor chain)', () => {
+  // 1 -> 2 -> 3 chain, plus an unrelated root 4.
+  const tree = [proc(1, 0), proc(2, 1), proc(3, 2), proc(4, 0)];
+
+  it('pins a process and toggling it again unpins', () => {
+    useProcessStore.getState().setProcesses(tree);
+    useProcessStore.getState().togglePin(1);
+    expect(useProcessStore.getState().pinnedPid).toBe(1);
+    useProcessStore.getState().togglePin(1);
+    expect(useProcessStore.getState().pinnedPid).toBeNull();
+  });
+
+  it('pinning a child opens its mid-chain ancestors so the chain is visible', () => {
+    useProcessStore.getState().setProcesses(tree); // 1 -> 2 -> 3
+    useProcessStore.getState().togglePin(3);
+    expect(useProcessStore.getState().pinnedPid).toBe(3);
+    // Mid ancestor 2 (depth 1, folded by default) is opened; root 1 stays default.
+    expect(useProcessStore.getState().toggled).toEqual([2]);
+  });
+
+  it('allows only one pin: pinning an unrelated process replaces the current pin', () => {
+    useProcessStore.getState().setProcesses(tree);
+    useProcessStore.getState().togglePin(1);
+    useProcessStore.getState().togglePin(4);
+    expect(useProcessStore.getState().pinnedPid).toBe(4);
+  });
+
+  it('unpins when toggling any node in the current pinned chain', () => {
+    useProcessStore.getState().setProcesses(tree);
+    useProcessStore.getState().togglePin(3); // chain = {3,2,1}
+    useProcessStore.getState().togglePin(1); // 1 is in the chain -> unpin
+    expect(useProcessStore.getState().pinnedPid).toBeNull();
   });
 });
 
-describe('toggleExpand', () => {
-  it('starts collapsed (empty) and adds a pid', () => {
-    expect(useProcessStore.getState().expanded).toEqual([]);
-    useProcessStore.getState().toggleExpand(7);
-    expect(useProcessStore.getState().expanded).toEqual([7]);
+describe('toggleFold', () => {
+  it('starts empty (pure depth default) and flips a pid', () => {
+    expect(useProcessStore.getState().toggled).toEqual([]);
+    useProcessStore.getState().toggleFold(7);
+    expect(useProcessStore.getState().toggled).toEqual([7]);
   });
 
-  it('removes a pid on the second toggle', () => {
-    useProcessStore.getState().toggleExpand(7);
-    useProcessStore.getState().toggleExpand(7);
-    expect(useProcessStore.getState().expanded).toEqual([]);
+  it('clears a pid on the second toggle', () => {
+    useProcessStore.getState().toggleFold(7);
+    useProcessStore.getState().toggleFold(7);
+    expect(useProcessStore.getState().toggled).toEqual([]);
   });
 
-  it('tracks multiple expanded pids independently', () => {
-    useProcessStore.getState().toggleExpand(1);
-    useProcessStore.getState().toggleExpand(2);
-    expect(useProcessStore.getState().expanded).toEqual([1, 2]);
-    useProcessStore.getState().toggleExpand(1);
-    expect(useProcessStore.getState().expanded).toEqual([2]);
-  });
-});
-
-describe('hoistPinned', () => {
-  const rows = [proc(1), proc(2), proc(3)];
-
-  it('floats pinned pids first in row order, unpinned after', () => {
-    const result = hoistPinned(rows, [3, 1]);
-    expect(result.map((p) => p.pid)).toEqual([1, 3, 2]);
-  });
-
-  it('returns the same order when nothing is pinned', () => {
-    expect(hoistPinned(rows, []).map((p) => p.pid)).toEqual([1, 2, 3]);
-  });
-
-  it('ignores a pinned pid that is not present in rows', () => {
-    expect(hoistPinned(rows, [99]).map((p) => p.pid)).toEqual([1, 2, 3]);
-  });
-
-  it('does not mutate the input rows', () => {
-    const input = [proc(1), proc(2)];
-    const snapshot = input.map((p) => p.pid);
-    hoistPinned(input, [2]);
-    expect(input.map((p) => p.pid)).toEqual(snapshot);
+  it('tracks multiple toggled pids independently', () => {
+    useProcessStore.getState().toggleFold(1);
+    useProcessStore.getState().toggleFold(2);
+    expect(useProcessStore.getState().toggled).toEqual([1, 2]);
+    useProcessStore.getState().toggleFold(1);
+    expect(useProcessStore.getState().toggled).toEqual([2]);
   });
 });
+

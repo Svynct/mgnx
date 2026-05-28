@@ -16,7 +16,9 @@ function heatAttr(cpu: number): string {
 }
 
 function formatMem(mb: number): string {
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)}G` : `${mb.toFixed(0)}M`;
+  if (mb >= 1024) return `${(mb / 1024).toFixed(1)}Gb`;
+  if (mb >= 1) return `${mb.toFixed(0)}Mb`;
+  return `${(mb * 1024).toFixed(0)}Kb`;
 }
 
 interface ProcessRowProps {
@@ -32,18 +34,18 @@ interface ProcessRowProps {
   scrollMarginTop: number;
   onSelect: (pid: number) => void;
   onContextMenu: (pid: number, e: React.MouseEvent) => void;
-  onToggleExpand: (pid: number) => void;
+  onToggleFold: (pid: number) => void;
 }
 
 export const ProcessRow = memo(
   forwardRef<HTMLTableRowElement, ProcessRowProps>(
     ({ proc, depth, hasChildren, expanded, cpuAccum, memAccum, selected, pinned,
-       rowHeight, scrollMarginTop, onSelect, onContextMenu, onToggleExpand }, ref) => {
-      // A collapsed parent rolls its descendants' totals into its own row; an
-      // expanded parent (children are separate rows now) and leaves show own values.
-      const showAccum = hasChildren && !expanded;
-      const cpu = showAccum ? cpuAccum : proc.cpu_percent;
-      const mem = showAccum ? memAccum : proc.memory_mb;
+       rowHeight, scrollMarginTop, onSelect, onContextMenu, onToggleFold }, ref) => {
+      // Every row shows its subtree total (own + all descendants). A leaf's accum
+      // is just its own usage; a parent rolls up its children. CPU is already a
+      // share of all cores (poller divides by core count); memory is summed RSS.
+      const cpu = cpuAccum;
+      const mem = memAccum;
       const caret = hasChildren ? (expanded ? '▼' : '▶') : ' ';
       return (
       <tr
@@ -70,7 +72,7 @@ export const ProcessRow = memo(
             without selecting the row. Both are inline so row height is unaffected. */}
         <td style={{ paddingLeft: 6 + depth * 14, paddingRight: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           <span
-            onClick={(e) => { e.stopPropagation(); if (hasChildren) onToggleExpand(proc.pid); }}
+            onClick={(e) => { e.stopPropagation(); if (hasChildren) onToggleFold(proc.pid); }}
             style={{ display: 'inline-block', width: 14, textAlign: 'center', color: 'var(--overlay0)', cursor: hasChildren ? 'pointer' : 'default' }}
           >{caret}</span>
           {proc.name}

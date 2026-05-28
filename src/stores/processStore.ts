@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { ancestorChain } from '../lib/processTree';
 
 export interface ProcessEntry {
   pid: number;
@@ -27,18 +28,6 @@ export function filterProcesses(
   return result;
 }
 
-// Floats pinned rows to the top, preserving their relative order within `rows`,
-// then the unpinned rows. Tracks by pid so pins survive the 1s poll replace.
-// Pure: never mutates the input array.
-export function hoistPinned(rows: ProcessEntry[], pinned: number[]): ProcessEntry[] {
-  if (pinned.length === 0) return rows;
-  const pinnedSet = new Set(pinned);
-  const top: ProcessEntry[] = [];
-  const rest: ProcessEntry[] = [];
-  for (const p of rows) (pinnedSet.has(p.pid) ? top : rest).push(p);
-  return [...top, ...rest];
-}
-
 // Returns the pid one step (dir=+1 down, -1 up) from `current` in the given order.
 // Tracks by pid (not index) so selection follows a process across re-sorts.
 export function adjacentPid(
@@ -59,15 +48,18 @@ interface ProcessStore {
   filter: string;
   sortBy: SortKey;
   selectedPid: number | null;
-  pinned: number[];
-  // PIDs whose tree children are revealed. Empty = everything collapsed (default).
-  expanded: number[];
+  // The single pinned process. Its whole ancestor chain is treated as pinned and
+  // floats to the top of each level. null = nothing pinned. Only one pin at a time.
+  pinnedPid: number | null;
+  // PIDs whose fold state is flipped from the depth default (roots open one level,
+  // deeper folded). Empty = pure default. See AUTO_EXPAND_DEPTH in processTree.
+  toggled: number[];
   setProcesses: (ps: ProcessEntry[]) => void;
   setFilter: (f: string) => void;
   setSortBy: (s: SortKey) => void;
   setSelectedPid: (pid: number | null) => void;
   togglePin: (pid: number) => void;
-  toggleExpand: (pid: number) => void;
+  toggleFold: (pid: number) => void;
   filtered: () => ProcessEntry[];
 }
 
@@ -76,17 +68,27 @@ export const useProcessStore = create<ProcessStore>((set, get) => ({
   filter: '',
   sortBy: 'cpu',
   selectedPid: null,
-  pinned: [],
-  expanded: [],
+  pinnedPid: null,
+  toggled: [],
   setProcesses: (processes) => set({ processes }),
   setFilter: (filter) => set({ filter }),
   setSortBy: (sortBy) => set({ sortBy }),
   setSelectedPid: (selectedPid) => set({ selectedPid }),
-  togglePin: (pid) => set((s) => ({
-    pinned: s.pinned.includes(pid) ? s.pinned.filter((p) => p !== pid) : [...s.pinned, pid],
-  })),
-  toggleExpand: (pid) => set((s) => ({
-    expanded: s.expanded.includes(pid) ? s.expanded.filter((p) => p !== pid) : [...s.expanded, pid],
+  // Single pin: clicking any node in the current pinned chain unpins it; clicking
+  // outside switches the pin to that node and opens its mid-chain ancestors (depth
+  // ≥ 1 are folded by default) so the whole chain is visible at the top of its
+  // levels. The root stays at its default-open state.
+  togglePin: (pid) => set((s) => {
+    const current = s.pinnedPid !== null ? new Set(ancestorChain(s.processes, s.pinnedPid)) : new Set<number>();
+    if (current.has(pid)) return { pinnedPid: null };
+    const chain = ancestorChain(s.processes, pid); // [pid, …mid…, root]
+    const toggled = new Set(s.toggled);
+    for (const mid of chain.slice(1, -1)) toggled.add(mid); // open depth-≥1 ancestors
+    if (chain.length > 0) toggled.delete(chain[chain.length - 1]); // keep root default-open
+    return { pinnedPid: pid, toggled: [...toggled] };
+  }),
+  toggleFold: (pid) => set((s) => ({
+    toggled: s.toggled.includes(pid) ? s.toggled.filter((p) => p !== pid) : [...s.toggled, pid],
   })),
   filtered: () => {
     const { processes, filter, sortBy } = get();

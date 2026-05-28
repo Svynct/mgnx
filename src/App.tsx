@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTauriEvents } from './hooks/useTauriEvents';
 import { useProcessStore, filterProcesses } from './stores/processStore';
-import { buildVisibleTree, hoistPinnedTree, flatToTreeRows } from './lib/processTree';
+import { buildVisibleTree, flatToTreeRows, ancestorPids } from './lib/processTree';
 import { useGpuStore } from './stores/gpuStore';
 import { isEditableTarget } from './lib/keyboard';
 import { TopBar } from './components/TopBar';
@@ -19,8 +19,15 @@ export default function App() {
   const processes = useProcessStore((s) => s.processes);
   const filter = useProcessStore((s) => s.filter);
   const sortBy = useProcessStore((s) => s.sortBy);
-  const pinned = useProcessStore((s) => s.pinned);
-  const expanded = useProcessStore((s) => s.expanded);
+  const pinnedPid = useProcessStore((s) => s.pinnedPid);
+  const toggled = useProcessStore((s) => s.toggled);
+
+  // The pinned process plus its ancestors up to root; each is hoisted to the top
+  // of its sibling level inside the tree.
+  const pinnedSet = useMemo(
+    () => (pinnedPid !== null ? ancestorPids(processes, pinnedPid) : new Set<number>()),
+    [processes, pinnedPid],
+  );
 
   const gpuAvailable = useGpuStore((s) => s.available);
   const tabs = useMemo<TabName[]>(
@@ -30,15 +37,14 @@ export default function App() {
     [gpuAvailable],
   );
 
-  // Tree rows with pinned subtrees hoisted to the top. While filtering, the tree
-  // collapses to a flat sorted list (no parent grouping); otherwise a collapsed
-  // htop-style tree is built from `expanded`. Recomputed only on data/filter/
-  // sort/pin/expand changes.
+  // While filtering, the tree flattens to a sorted list (no parent grouping);
+  // otherwise an htop-style tree is built — roots show one level by default, the
+  // `toggled` pids flip from that, and the pinned chain is hoisted per level.
   const rows = useMemo(
     () => filter
-      ? hoistPinnedTree(flatToTreeRows(filterProcesses(processes, filter, sortBy)), pinned)
-      : hoistPinnedTree(buildVisibleTree(processes, new Set(expanded), sortBy), pinned),
-    [processes, filter, sortBy, pinned, expanded],
+      ? flatToTreeRows(filterProcesses(processes, filter, sortBy))
+      : buildVisibleTree(processes, new Set(toggled), sortBy, pinnedSet),
+    [processes, filter, sortBy, toggled, pinnedSet],
   );
 
   // ArrowLeft/ArrowRight switch tabs globally. Listener registers once; reads

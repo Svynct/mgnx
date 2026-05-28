@@ -34,9 +34,8 @@ export function ProcessesTab({ rows }: ProcessesTabProps) {
   const setSortBy = useProcessStore((s) => s.setSortBy);
   const selectedPid = useProcessStore((s) => s.selectedPid);
   const setSelectedPid = useProcessStore((s) => s.setSelectedPid);
-  const pinned = useProcessStore((s) => s.pinned);
   const togglePin = useProcessStore((s) => s.togglePin);
-  const toggleExpand = useProcessStore((s) => s.toggleExpand);
+  const toggleFold = useProcessStore((s) => s.toggleFold);
 
   const filterRef = useRef<HTMLInputElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -60,7 +59,16 @@ export function ProcessesTab({ rows }: ProcessesTabProps) {
   }, []);
 
   // Stable so memoized ProcessRows keep their identity across polls.
-  const onToggleExpand = useCallback((pid: number) => toggleExpand(pid), [toggleExpand]);
+  const onToggleFold = useCallback((pid: number) => toggleFold(pid), [toggleFold]);
+
+  // Toggle the pin, then jump to the top whenever a pin is now active so the
+  // pinned chain is in view. Unpinning leaves the scroll position alone.
+  const pinAndReveal = useCallback((pid: number) => {
+    togglePin(pid);
+    if (useProcessStore.getState().pinnedPid !== null && scrollerRef.current) {
+      scrollerRef.current.scrollTop = 0;
+    }
+  }, [togglePin]);
 
   // '/' focuses the filter box.
   useEffect(() => {
@@ -77,19 +85,17 @@ export function ProcessesTab({ rows }: ProcessesTabProps) {
   // Up/Down move the selected process (by pid); Space toggles its pin; Enter
   // expands/collapses the selected node (only when it has children). Reads latest
   // rows/selection/pins via ref so the listener never needs re-binding.
-  const navRef = useRef({ rows, selectedPid, pinned });
-  navRef.current = { rows, selectedPid, pinned };
+  const navRef = useRef({ rows, selectedPid });
+  navRef.current = { rows, selectedPid };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isEditableTarget(e.target)) return;
       if (e.key === 'Escape') { setSelectedPid(null); return; }
       if (e.key === ' ') {
-        const { selectedPid, pinned } = navRef.current;
+        const { selectedPid } = navRef.current;
         if (selectedPid === null) return;
         e.preventDefault(); // Space otherwise scrolls the page.
-        const wasPinned = pinned.includes(selectedPid);
-        togglePin(selectedPid);
-        if (!wasPinned && scrollerRef.current) scrollerRef.current.scrollTop = 0;
+        pinAndReveal(selectedPid);
         return;
       }
       if (e.key === 'Enter') {
@@ -97,7 +103,7 @@ export function ProcessesTab({ rows }: ProcessesTabProps) {
         if (selectedPid === null) return;
         e.preventDefault();
         const row = rows.find((r) => r.proc.pid === selectedPid);
-        if (row?.hasChildren) toggleExpand(selectedPid);
+        if (row?.hasChildren) toggleFold(selectedPid);
         return;
       }
       if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
@@ -109,7 +115,7 @@ export function ProcessesTab({ rows }: ProcessesTabProps) {
     };
     window.addEventListener('keydown', onKey, { capture: true });
     return () => window.removeEventListener('keydown', onKey, { capture: true });
-  }, [setSelectedPid, togglePin, toggleExpand]);
+  }, [setSelectedPid, pinAndReveal, toggleFold]);
 
   // Keep the selected row visible (only scrolls when out of view; poll updates
   // don't change selectedPid, so this never fires on the 1s refresh).
@@ -189,12 +195,12 @@ export function ProcessesTab({ rows }: ProcessesTabProps) {
                 cpuAccum={r.cpuAccum}
                 memAccum={r.memAccum}
                 selected={r.proc.pid === selectedPid}
-                pinned={pinned.includes(r.proc.pid)}
+                pinned={r.pinned}
                 rowHeight={ROW_H}
                 scrollMarginTop={HEADER_H}
                 onSelect={onSelectRow}
                 onContextMenu={onCtxRow}
-                onToggleExpand={onToggleExpand}
+                onToggleFold={onToggleFold}
               />
             ))}
             {padBottom > 0 && <tr style={{ height: padBottom }}><td colSpan={7} style={{ padding: 0, border: 0 }} /></tr>}
@@ -205,12 +211,8 @@ export function ProcessesTab({ rows }: ProcessesTabProps) {
       {ctxMenu && (
         <ContextMenu
           x={ctxMenu.x} y={ctxMenu.y} pid={ctxMenu.pid}
-          isPinned={pinned.includes(ctxMenu.pid)}
-          onTogglePin={() => {
-            const wasPinned = pinned.includes(ctxMenu.pid);
-            togglePin(ctxMenu.pid);
-            if (!wasPinned && scrollerRef.current) scrollerRef.current.scrollTop = 0;
-          }}
+          isPinned={rows.find((r) => r.proc.pid === ctxMenu.pid)?.pinned ?? false}
+          onTogglePin={() => pinAndReveal(ctxMenu.pid)}
           onClose={() => setCtxMenu(null)}
           onRenice={() => { setSelectedPid(ctxMenu.pid); setShowRenice(true); }}
           onDetails={() => { setSelectedPid(ctxMenu.pid); setShowDetails(true); }}

@@ -67,6 +67,10 @@ impl SystemPoller {
         let mut entries: Vec<ProcessEntry> = sys
             .processes()
             .values()
+            // sysinfo lists threads as separate entries on Linux; each shares its
+            // process's address space, so including them multiplies memory by the
+            // thread count. Keep only real processes.
+            .filter(|p| p.thread_kind().is_none())
             .map(|p| {
                 let user = p
                     .user_id()
@@ -79,7 +83,11 @@ impl SystemPoller {
                     ppid: p.parent().map(|pp| pp.as_u32()).unwrap_or(0),
                     name: p.name().to_string_lossy().into_owned(),
                     cpu_percent: p.cpu_usage() / cpu_count,
-                    memory_mb: p.memory() as f64 / 1_048_576.0,
+                    // PSS (proportional set size) so a subtree sum can't exceed
+                    // physical RAM; RSS would double-count shared pages. Falls
+                    // back to RSS when smaps_rollup is unreadable.
+                    memory_mb: read_pss_mb(p.pid().as_u32())
+                        .unwrap_or_else(|| p.memory() as f64 / 1_048_576.0),
                     status: format!("{:?}", p.status()),
                     user,
                     threads: p.tasks().map(|t| t.len() as u32).unwrap_or(1),
@@ -187,6 +195,21 @@ impl SystemPoller {
             eprintln!("emit disk-update failed: {e}");
         }
     }
+}
+
+// Proportional Set Size (MB) from /proc/<pid>/smaps_rollup. PSS divides each
+// shared page across the processes mapping it, so summing PSS over a tree never
+// exceeds physical RAM (unlike RSS). Returns None when the file is unreadable —
+// kernel threads (no mm) or processes owned by another user.
+fn read_pss_mb(pid: u32) -> Option<f64> {
+    let content = std::fs::read_to_string(format!("/proc/{pid}/smaps_rollup")).ok()?;
+    for line in content.lines() {
+        if let Some(rest) = line.strip_prefix("Pss:") {
+            let kb: f64 = rest.split_whitespace().next()?.parse().ok()?;
+            return Some(kb / 1024.0);
+        }
+    }
+    None
 }
 
 fn parse_proc_connections() -> Vec<NetworkConnection> {
