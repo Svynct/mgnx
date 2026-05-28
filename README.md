@@ -13,6 +13,7 @@
   <img alt="Rust"      src="https://img.shields.io/badge/Rust-2021-181926?style=flat&logo=rust&logoColor=eed49f">
   <img alt="Linux"     src="https://img.shields.io/badge/Linux-Wayland%20%7C%20X11-181926?style=flat&logo=linux&logoColor=a6da95">
   <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-181926?style=flat&logo=opensourceinitiative&logoColor=a6da95">
+  <a href="https://aur.archlinux.org/packages/mgnx"><img alt="AUR" src="https://img.shields.io/aur/version/mgnx?style=flat&logo=archlinux&logoColor=8aadf4&color=181926"></a>
 </p>
 
 <p align="center">
@@ -49,13 +50,21 @@
 
 ## Install
 
+**Arch Linux** — from the AUR:
+
+```bash
+yay -S mgnx      # or: paru -S mgnx
+```
+
+**From source** (Arch · Debian/Ubuntu · Fedora):
+
 ```bash
 git clone https://github.com/Svynct/mgnx.git
 cd mgnx
 ./install.sh
 ```
 
-Works on **Arch**, **Debian/Ubuntu**, and **Fedora** — installs Rust and Node.js if missing, builds the app, drops the binary at `~/.local/bin/mgnx`, and registers an app-menu entry.
+`install.sh` installs Rust and Node.js if missing, builds the app, drops the binary at `~/.local/bin/mgnx`, and registers an app-menu entry.
 
 ```bash
 INSTALL_DIR=/usr/local/bin ./install.sh   # custom location

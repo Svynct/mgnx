@@ -3,7 +3,7 @@
 # AUR recipe for mgnx (builds from a tagged release tarball).
 # Publish: tag a release (git tag v$pkgver && push), then in a clean AUR clone:
 #   cp packaging/PKGBUILD .
-#   updpkgsums                       # fill in the real sha256 (replaces SKIP)
+#   updpkgsums                       # refresh sha256sums when bumping pkgver
 #   makepkg --printsrcinfo > .SRCINFO
 #   git add PKGBUILD .SRCINFO && git commit && git push
 # Build/test locally with: makepkg -si
@@ -18,7 +18,7 @@ license=('MIT')
 depends=('webkit2gtk-4.1' 'gtk3' 'libappindicator-gtk3')
 makedepends=('rust' 'cargo' 'nodejs' 'npm')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')  # run `updpkgsums` to pin the real hash before publishing
+sha256sums=('8658b60d4fdf29937c4d3323b8b2955d847ec0ee7626a8c1008a3b07651df206')
 
 build() {
     cd "$pkgname-$pkgver"
