@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useProcessStore, adjacentPid, ProcessEntry } from '../../stores/processStore';
+import { useProcessStore, adjacentPid, filterProcesses, ProcessEntry } from '../../stores/processStore';
 
 beforeEach(() => {
-  useProcessStore.setState({ processes: [], filter: '', sortBy: 'cpu', pinnedPid: null, toggled: [] });
+  useProcessStore.setState({ processes: [], filter: '', sortBy: 'cpu', pinnedPid: null, toggled: new Set() });
 });
 
 function proc(pid: number, ppid = 0): ProcessEntry {
@@ -23,7 +23,8 @@ describe('processStore', () => {
       { pid: 2, ppid: 0, name: 'chrome', cpu_percent: 0, memory_mb: 0, status: 'Running', user: 'user', threads: 1 },
     ]);
     useProcessStore.getState().setFilter('chrome');
-    const filtered = useProcessStore.getState().filtered();
+    const s = useProcessStore.getState();
+    const filtered = filterProcesses(s.processes, s.filter, s.sortBy);
     expect(filtered).toHaveLength(1);
     expect(filtered[0].name).toBe('chrome');
   });
@@ -34,7 +35,8 @@ describe('processStore', () => {
       { pid: 2, ppid: 0, name: 'b', cpu_percent: 0, memory_mb: 50,  status: 'Running', user: 'u', threads: 1 },
     ]);
     useProcessStore.getState().setSortBy('mem');
-    const sorted = useProcessStore.getState().filtered();
+    const s = useProcessStore.getState();
+    const sorted = filterProcesses(s.processes, s.filter, s.sortBy);
     expect(sorted[0].pid).toBe(1);
   });
 });
@@ -85,7 +87,7 @@ describe('togglePin (single pin + ancestor chain)', () => {
     useProcessStore.getState().togglePin(3);
     expect(useProcessStore.getState().pinnedPid).toBe(3);
     // Mid ancestor 2 (depth 1, folded by default) is opened; root 1 stays default.
-    expect(useProcessStore.getState().toggled).toEqual([2]);
+    expect(useProcessStore.getState().toggled).toEqual(new Set([2]));
   });
 
   it('allows only one pin: pinning an unrelated process replaces the current pin', () => {
@@ -105,23 +107,23 @@ describe('togglePin (single pin + ancestor chain)', () => {
 
 describe('toggleFold', () => {
   it('starts empty (pure depth default) and flips a pid', () => {
-    expect(useProcessStore.getState().toggled).toEqual([]);
+    expect(useProcessStore.getState().toggled).toEqual(new Set());
     useProcessStore.getState().toggleFold(7);
-    expect(useProcessStore.getState().toggled).toEqual([7]);
+    expect(useProcessStore.getState().toggled).toEqual(new Set([7]));
   });
 
   it('clears a pid on the second toggle', () => {
     useProcessStore.getState().toggleFold(7);
     useProcessStore.getState().toggleFold(7);
-    expect(useProcessStore.getState().toggled).toEqual([]);
+    expect(useProcessStore.getState().toggled).toEqual(new Set());
   });
 
   it('tracks multiple toggled pids independently', () => {
     useProcessStore.getState().toggleFold(1);
     useProcessStore.getState().toggleFold(2);
-    expect(useProcessStore.getState().toggled).toEqual([1, 2]);
+    expect(useProcessStore.getState().toggled).toEqual(new Set([1, 2]));
     useProcessStore.getState().toggleFold(1);
-    expect(useProcessStore.getState().toggled).toEqual([2]);
+    expect(useProcessStore.getState().toggled).toEqual(new Set([2]));
   });
 });
 

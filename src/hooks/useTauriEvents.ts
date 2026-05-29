@@ -11,7 +11,8 @@ export function useTauriEvents() {
     const unlisteners = [
       listen('processes-update', (e) => useProcessStore.getState().setProcesses(e.payload as any)),
       listen('resources-update', (e) => useResourceStore.getState().push(e.payload as any)),
-      listen('network-update',   (e) => useNetworkStore.getState().setInterfaces(e.payload as any)),
+      listen('network-update',      (e) => useNetworkStore.getState().setInterfaces(e.payload as any)),
+      listen('connections-update',  (e) => useNetworkStore.getState().setConnections(e.payload as any)),
       listen('disk-update',      (e) => useDiskStore.getState().setDisks(e.payload as any)),
       listen('gpu-update',       (e) => useGpuStore.getState().setPayload(e.payload as any)),
       listen('gpu-available',    (e) => useGpuStore.getState().setAvailable(e.payload as boolean)),

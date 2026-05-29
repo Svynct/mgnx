@@ -13,10 +13,14 @@ export interface NetworkInterface {
 
 interface NetworkStore {
   interfaces: NetworkInterface[];
+  connections: NetworkConnection[];
   setInterfaces: (ifaces: NetworkInterface[]) => void;
+  setConnections: (conns: NetworkConnection[]) => void;
 }
 
 export const useNetworkStore = create<NetworkStore>((set) => ({
   interfaces: [],
+  connections: [],
   setInterfaces: (interfaces) => set({ interfaces }),
+  setConnections: (connections) => set({ connections }),
 }));

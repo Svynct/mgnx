@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
 interface ContextMenuProps {
@@ -28,6 +28,8 @@ function Divider() {
 }
 
 export function ContextMenu({ x, y, pid, isPinned, onTogglePin, onClose, onRenice, onDetails }: ContextMenuProps) {
+  const [actError, setActError] = useState('');
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     const click = () => onClose();
@@ -39,13 +41,25 @@ export function ContextMenu({ x, y, pid, isPinned, onTogglePin, onClose, onRenic
     };
   }, [onClose]);
 
-  const act = (cmd: string) => { invoke(cmd, { pid }); onClose(); };
+  const act = async (cmd: string) => {
+    try {
+      await invoke(cmd, { pid });
+      onClose();
+    } catch (e) {
+      setActError(String(e));
+    }
+  };
 
   return (
     <div onMouseDown={(e) => e.stopPropagation()}
       style={{ position: 'fixed', top: y, left: x, zIndex: 1000,
         background: 'var(--mantle)', border: '1px solid var(--surface1)',
         borderRadius: 6, minWidth: 150, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
+      {actError && (
+        <div style={{ padding: '6px 14px', color: 'var(--red)', fontSize: 11, maxWidth: 200, wordBreak: 'break-word' }}>
+          {actError}
+        </div>
+      )}
       <Item label={isPinned ? 'Unpin' : 'Pin'} onClick={() => { onTogglePin(); onClose(); }} />
       <Divider />
       <Item label="SIGKILL" danger onClick={() => act('process_kill')} />

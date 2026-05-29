@@ -47,7 +47,6 @@ pub struct NetworkInterface {
     pub tx_bytes_per_sec: f64,
     pub rx_total_mb: f64,
     pub tx_total_mb: f64,
-    pub connections: Vec<NetworkConnection>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -208,18 +207,11 @@ mod tests {
             tx_bytes_per_sec: 512.0,
             rx_total_mb: 1024.0,
             tx_total_mb: 256.0,
-            connections: vec![NetworkConnection {
-                proto: "TCP".to_string(),
-                local_port: 8080,
-                remote_addr: "1.2.3.4:443".to_string(),
-                state: "ESTABLISHED".to_string(),
-            }],
         };
         let json = serde_json::to_string(&iface).unwrap();
         let decoded: NetworkInterface = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.name, "eth0");
         assert!(decoded.is_up);
-        assert_eq!(decoded.connections.len(), 1);
     }
 
     #[test]

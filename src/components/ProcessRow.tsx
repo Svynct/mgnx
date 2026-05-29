@@ -1,18 +1,11 @@
 import { forwardRef, memo } from 'react';
 import { ProcessEntry } from '../stores/processStore';
 
-function heatColor(cpu: number): string {
-  if (cpu >= 15) return 'var(--red)';
-  if (cpu >= 8)  return 'var(--yellow)';
-  if (cpu >= 1)  return 'var(--green)';
-  return 'var(--overlay0)';
-}
-
-function heatAttr(cpu: number): string {
-  if (cpu >= 15) return 'red';
-  if (cpu >= 8)  return 'yellow';
-  if (cpu >= 1)  return 'green';
-  return 'muted';
+function heatLevel(cpu: number): { color: string; attr: string } {
+  if (cpu >= 15) return { color: 'var(--red)',     attr: 'red'    };
+  if (cpu >= 8)  return { color: 'var(--yellow)',  attr: 'yellow' };
+  if (cpu >= 1)  return { color: 'var(--green)',   attr: 'green'  };
+  return                 { color: 'var(--overlay0)', attr: 'muted' };
 }
 
 function formatMem(mb: number): string {
@@ -46,11 +39,12 @@ export const ProcessRow = memo(
       // share of all cores (poller divides by core count); memory is summed RSS.
       const cpu = cpuAccum;
       const mem = memAccum;
+      const heat = heatLevel(cpu);
       const caret = hasChildren ? (expanded ? '▼' : '▶') : ' ';
       return (
       <tr
         ref={ref}
-        data-heat={heatAttr(cpu)}
+        data-heat={heat.attr}
         onClick={() => onSelect(proc.pid)}
         onContextMenu={(e) => onContextMenu(proc.pid, e)}
         style={{
@@ -77,7 +71,7 @@ export const ProcessRow = memo(
           >{caret}</span>
           {proc.name}
         </td>
-        <td style={{ padding: '3px 6px', color: heatColor(cpu), textAlign: 'right' }}>
+        <td style={{ padding: '3px 6px', color: heat.color, textAlign: 'right' }}>
           {cpu.toFixed(1)}%
         </td>
         <td style={{ padding: '3px 6px', textAlign: 'right' }}>{formatMem(mem)}</td>

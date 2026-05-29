@@ -13,6 +13,11 @@ pub struct SystemPoller {
     disks: Disks,
     prev_rx: HashMap<String, u64>,
     prev_tx: HashMap<String, u64>,
+    // device name → (sectors_read, sectors_written) from previous tick
+    prev_disk_sectors: HashMap<String, (u64, u64)>,
+    // pid → last-read PSS in MB; refreshed every 3rd tick to amortize /proc I/O.
+    pss_cache: HashMap<u32, f64>,
+    pss_tick: u32,
 }
 
 impl SystemPoller {
@@ -24,6 +29,9 @@ impl SystemPoller {
             disks: Disks::new_with_refreshed_list(),
             prev_rx: HashMap::new(),
             prev_tx: HashMap::new(),
+            prev_disk_sectors: HashMap::new(),
+            pss_cache: HashMap::new(),
+            pss_tick: 0,
         }
     }
 
@@ -37,6 +45,7 @@ impl SystemPoller {
             );
             let mut users = Users::new_with_refreshed_list();
             let gpu_available = !matches!(self.gpu_backend, crate::gpu::GpuBackend::None);
+            let mut tick: u32 = 0;
 
             loop {
                 sys.refresh_cpu_specifics(CpuRefreshKind::everything());
@@ -46,13 +55,16 @@ impl SystemPoller {
                     true,
                     ProcessRefreshKind::everything(),
                 );
-                users.refresh_list();
+                // Users change rarely; refresh every 30 ticks (≈30s).
+                if tick % 30 == 0 { users.refresh_list(); }
+                tick = tick.wrapping_add(1);
                 self.networks.refresh();
                 self.disks.refresh();
 
                 self.emit_processes(&sys, &users);
                 self.emit_resources(&sys);
                 self.emit_network();
+                self.emit_connections();
                 self.emit_disks();
                 crate::gpu::poll_gpu(&self.gpu_backend, &self.handle);
                 // Re-broadcast each tick: the one-shot emit at setup races the
@@ -64,10 +76,16 @@ impl SystemPoller {
         });
     }
 
-    fn emit_processes(&self, sys: &System, users: &Users) {
+    fn emit_processes(&mut self, sys: &System, users: &Users) {
         // sysinfo's cpu_usage() is per-core (100% = one full core, can exceed 100%
         // for multi-threaded procs). Divide by core count so 100% = all cores busy.
         let cpu_count = sys.cpus().len().max(1) as f32;
+
+        // Refresh PSS from /proc every 3rd tick; otherwise serve cached values.
+        // This cuts /proc reads from N/tick to N/3 ticks on busy systems.
+        self.pss_tick = self.pss_tick.wrapping_add(1);
+        let refresh_pss = self.pss_tick % 3 == 0;
+
         let mut entries: Vec<ProcessEntry> = sys
             .processes()
             .values()
@@ -76,22 +94,29 @@ impl SystemPoller {
             // thread count. Keep only real processes.
             .filter(|p| p.thread_kind().is_none())
             .map(|p| {
+                let pid = p.pid().as_u32();
                 let user = p
                     .user_id()
                     .and_then(|uid| users.get_user_by_id(uid))
                     .map(|u| u.name().to_string())
                     .unwrap_or_default();
 
+                let memory_mb = if refresh_pss {
+                    let pss = read_pss_mb(pid)
+                        .unwrap_or_else(|| p.memory() as f64 / 1_048_576.0);
+                    self.pss_cache.insert(pid, pss);
+                    pss
+                } else {
+                    *self.pss_cache.get(&pid)
+                        .unwrap_or(&(p.memory() as f64 / 1_048_576.0))
+                };
+
                 ProcessEntry {
-                    pid: p.pid().as_u32(),
+                    pid,
                     ppid: p.parent().map(|pp| pp.as_u32()).unwrap_or(0),
                     name: p.name().to_string_lossy().into_owned(),
                     cpu_percent: p.cpu_usage() / cpu_count,
-                    // PSS (proportional set size) so a subtree sum can't exceed
-                    // physical RAM; RSS would double-count shared pages. Falls
-                    // back to RSS when smaps_rollup is unreadable.
-                    memory_mb: read_pss_mb(p.pid().as_u32())
-                        .unwrap_or_else(|| p.memory() as f64 / 1_048_576.0),
+                    memory_mb,
                     status: format!("{:?}", p.status()),
                     user,
                     threads: p.tasks().map(|t| t.len() as u32).unwrap_or(1),
@@ -137,8 +162,7 @@ impl SystemPoller {
     }
 
     fn emit_network(&mut self) {
-        let conns = parse_proc_connections();
-
+        let ips = interface_ips();
         // Collect immutable borrow of `networks` before mutating `prev_*` maps.
         let snapshots: Vec<(String, u64, u64, bool)> = self
             .networks
@@ -160,15 +184,14 @@ impl SystemPoller {
                 self.prev_tx.insert(name.clone(), tx_now);
 
                 NetworkInterface {
+                    ip: ips.get(&name).cloned().unwrap_or_default(),
                     name,
                     is_up,
-                    ip: String::new(),
                     link_speed_mbps: 0,
                     rx_bytes_per_sec: rx_per_sec,
                     tx_bytes_per_sec: tx_per_sec,
                     rx_total_mb: rx_now as f64 / 1_048_576.0,
                     tx_total_mb: tx_now as f64 / 1_048_576.0,
-                    connections: conns.clone(),
                 }
             })
             .collect();
@@ -178,27 +201,91 @@ impl SystemPoller {
         }
     }
 
-    fn emit_disks(&self) {
+    fn emit_connections(&self) {
+        let conns = parse_proc_connections();
+        if let Err(e) = self.handle.emit("connections-update", conns) {
+            eprintln!("emit connections-update failed: {e}");
+        }
+    }
+
+    fn emit_disks(&mut self) {
+        let diskstats = std::fs::read_to_string("/proc/diskstats")
+            .map(|s| crate::parse::parse_diskstats(&s))
+            .unwrap_or_default();
+
         let entries: Vec<DiskEntry> = self
             .disks
             .iter()
-            .map(|d| DiskEntry {
-                mount: d.mount_point().to_string_lossy().into_owned(),
-                device: d.name().to_string_lossy().into_owned(),
-                fs_type: d.file_system().to_string_lossy().into_owned(),
-                used_bytes: d.total_space() - d.available_space(),
-                total_bytes: d.total_space(),
-                read_bytes_per_sec: 0.0,
-                write_bytes_per_sec: 0.0,
-                inodes_used: 0,
-                inodes_total: 0,
+            .map(|d| {
+                let mount = d.mount_point().to_string_lossy().into_owned();
+                // sysinfo returns device path like "/dev/sda1"; strip prefix for diskstats lookup.
+                let raw_dev = d.name().to_string_lossy().into_owned();
+                let dev_key = raw_dev.trim_start_matches("/dev/").to_string();
+
+                let (read_bps, write_bps) = if let Some(&(r_now, w_now)) = diskstats.get(&dev_key) {
+                    let (r_prev, w_prev) = self.prev_disk_sectors.get(&dev_key).copied().unwrap_or((r_now, w_now));
+                    let rbps = r_now.saturating_sub(r_prev) as f64 * 512.0;
+                    let wbps = w_now.saturating_sub(w_prev) as f64 * 512.0;
+                    (rbps, wbps)
+                } else {
+                    (0.0, 0.0)
+                };
+
+                let (inodes_used, inodes_total) = statvfs_inodes(&mount);
+
+                DiskEntry {
+                    mount,
+                    device: raw_dev,
+                    fs_type: d.file_system().to_string_lossy().into_owned(),
+                    used_bytes: d.total_space() - d.available_space(),
+                    total_bytes: d.total_space(),
+                    read_bytes_per_sec: read_bps,
+                    write_bytes_per_sec: write_bps,
+                    inodes_used,
+                    inodes_total,
+                }
             })
             .collect();
+
+        // Update prev counters after building entries.
+        for (dev, counts) in diskstats {
+            self.prev_disk_sectors.insert(dev, counts);
+        }
 
         if let Err(e) = self.handle.emit("disk-update", entries) {
             eprintln!("emit disk-update failed: {e}");
         }
     }
+}
+
+/// Returns a map of interface name → first IPv4 address string via getifaddrs.
+fn interface_ips() -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    if let Ok(addrs) = nix::ifaddrs::getifaddrs() {
+        for addr in addrs {
+            if let Some(storage) = addr.address {
+                if let Some(sin) = storage.as_sockaddr_in() {
+                    map.entry(addr.interface_name).or_insert_with(|| {
+                        format!("{}", std::net::Ipv4Addr::from(sin.ip()))
+                    });
+                }
+            }
+        }
+    }
+    map
+}
+
+/// Returns (inodes_used, inodes_total) for the filesystem at `mount` via statvfs.
+/// Returns (0, 0) when the call fails (e.g. permission or unsupported fs).
+fn statvfs_inodes(mount: &str) -> (u64, u64) {
+    use std::ffi::CString;
+    let path = CString::new(mount).unwrap_or_default();
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    let ret = unsafe { libc::statvfs(path.as_ptr(), &mut st) };
+    if ret != 0 { return (0, 0); }
+    let total = st.f_files;
+    let free  = st.f_ffree;
+    (total.saturating_sub(free), total)
 }
 
 // Reads /proc/<pid>/smaps_rollup and returns its PSS in MB (None when unreadable —

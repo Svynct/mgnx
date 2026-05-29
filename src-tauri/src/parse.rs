@@ -57,10 +57,15 @@ pub fn cpu_time_secs(utime: u64, stime: u64, clk_tck: f64) -> f64 {
     (utime + stime) as f64 / clk_tck
 }
 
-/// Human "Ns ago" from system uptime and the process start time (in clock ticks).
+/// Human-readable "N[s|m|h|d] ago" from system uptime and the process start time (in clock ticks).
 pub fn format_start_time(uptime_s: f64, start_ticks: u64, clk_tck: f64) -> String {
-    let start_secs_ago = uptime_s - (start_ticks as f64 / clk_tck);
-    format!("{:.0}s ago", start_secs_ago.max(0.0))
+    let secs = (uptime_s - (start_ticks as f64 / clk_tck)).max(0.0) as u64;
+    match secs {
+        s if s < 120     => format!("{}s ago", s),
+        s if s < 7_200   => format!("{}m ago", s / 60),
+        s if s < 172_800 => format!("{}h ago", s / 3_600),
+        s                => format!("{}d ago", s / 86_400),
+    }
 }
 
 /// First whitespace-separated number from /proc/uptime.
@@ -105,8 +110,20 @@ pub fn format_hex_addr(addr: &str) -> Option<String> {
         let n = u32::from_str_radix(ip_hex, 16).ok()?;
         let b = n.to_le_bytes();
         Some(format!("{}.{}.{}.{}:{}", b[0], b[1], b[2], b[3], port))
+    } else if ip_hex.len() == 32 {
+        // /proc/net/tcp6: four LE 32-bit words → reassemble into 8 × u16 groups.
+        let groups: Option<Vec<u32>> = (0..4)
+            .map(|i| u32::from_str_radix(&ip_hex[i * 8..(i + 1) * 8], 16).ok())
+            .collect();
+        let words = groups?;
+        let g: Vec<u16> = words.iter().flat_map(|w| {
+            let b = w.to_le_bytes();
+            [u16::from_be_bytes([b[0], b[1]]), u16::from_be_bytes([b[2], b[3]])]
+        }).collect();
+        Some(format!("[{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}]:{}",
+            g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7], port))
     } else {
-        Some(format!("[ipv6]:{}", port))
+        None
     }
 }
 
@@ -140,6 +157,26 @@ pub fn connection_line(proto: &str, line: &str) -> Option<NetworkConnection> {
         remote_addr: format_hex_addr(cols[2])?,
         state: state_name(cols[3])?.to_string(),
     })
+}
+
+// ── /proc/diskstats ───────────────────────────────────────────────────────────
+
+/// Parses /proc/diskstats content into a map of device → (sectors_read, sectors_written).
+/// Only real block devices are included (skips loop, dm, ram, sr).
+pub fn parse_diskstats(content: &str) -> std::collections::HashMap<String, (u64, u64)> {
+    let mut map = std::collections::HashMap::new();
+    for line in content.lines() {
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        if cols.len() < 10 { continue; }
+        let dev = cols[2];
+        // Skip pseudo-devices: loop*, dm-*, ram*, sr*
+        if dev.starts_with("loop") || dev.starts_with("dm-")
+            || dev.starts_with("ram") || dev.starts_with("sr") { continue; }
+        let reads: u64 = cols[5].parse().unwrap_or(0);
+        let writes: u64 = cols[9].parse().unwrap_or(0);
+        map.insert(dev.to_string(), (reads, writes));
+    }
+    map
 }
 
 // ── AMD rocm-smi JSON ─────────────────────────────────────────────────────────
@@ -240,11 +277,19 @@ mod tests {
     }
 
     #[test]
-    fn format_start_time_clamps_to_zero() {
-        // uptime 100s, started at 9000 ticks @ 100 ticks/s => 90s ago.
+    fn format_start_time_clamps_to_zero_and_formats_tiers() {
+        // uptime 100s, started 90 ticks ago @ 100 ticks/s => 10s ago.
         assert_eq!(format_start_time(100.0, 9000, 100.0), "10s ago");
-        // start in the "future" clamps to 0.
+        // start in the "future" clamps to 0s.
         assert_eq!(format_start_time(10.0, 9000, 100.0), "0s ago");
+        // 3600s < 7200 threshold => minutes tier => 60m ago.
+        assert_eq!(format_start_time(3600.0, 0, 1.0), "60m ago");
+        // 7200s = first hour entry => 2h ago.
+        assert_eq!(format_start_time(7200.0, 0, 1.0), "2h ago");
+        // 172800s = exactly 2d threshold => 2d ago.
+        assert_eq!(format_start_time(172_800.0, 0, 1.0), "2d ago");
+        // 130s => 2m ago (>=120).
+        assert_eq!(format_start_time(130.0, 0, 1.0), "2m ago");
     }
 
     #[test]
@@ -272,9 +317,16 @@ mod tests {
     #[test]
     fn format_hex_addr_ipv4_and_ipv6() {
         assert_eq!(format_hex_addr("0100007F:0050").as_deref(), Some("127.0.0.1:80"));
-        assert!(format_hex_addr("00000000000000000000000001000000:0050").unwrap().starts_with("[ipv6]:"));
+        // Loopback IPv6 ::1 in /proc/net/tcp6 little-endian 32-bit word format.
+        // ::1 = 00000000 00000000 00000000 01000000 (each word LE)
+        let ipv6 = format_hex_addr("00000000000000000000000001000000:0050").unwrap();
+        assert!(ipv6.ends_with(":80"), "expected port 80, got {ipv6}");
+        assert!(ipv6.starts_with('['), "expected IPv6 brackets, got {ipv6}");
+        // malformed inputs
         assert_eq!(format_hex_addr("nocolon"), None);
         assert_eq!(format_hex_addr("0100007F:ZZZZ"), None);
+        // short non-8 non-32 hex string returns None
+        assert_eq!(format_hex_addr("ABCD:0050"), None);
     }
 
     #[test]
@@ -294,6 +346,21 @@ mod tests {
         assert_eq!(conn.state, "ESTABLISHED");
         assert!(connection_line("TCP", "too few").is_none());
         assert!(connection_line("TCP", "0: 0100007F:0050 0100007F:1F90 FF").is_none()); // bad state
+    }
+
+    #[test]
+    fn parse_diskstats_extracts_sectors() {
+        let content = "\
+   8   0 sda 1000 0 2000 0 500 0 1000 0 0 0 0\n\
+   8   1 sda1 800 0 1600 0 400 0 800 0 0 0 0\n\
+   7   0 loop0 10 0 20 0 5 0 10 0 0 0 0\n\
+  11   0 sr0 0 0 0 0 0 0 0 0 0 0 0\n";
+        let map = parse_diskstats(content);
+        assert_eq!(map.get("sda"), Some(&(2000, 1000)));
+        assert_eq!(map.get("sda1"), Some(&(1600, 800)));
+        // loop and sr devices are filtered out
+        assert!(!map.contains_key("loop0"));
+        assert!(!map.contains_key("sr0"));
     }
 
     #[test]

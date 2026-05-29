@@ -53,14 +53,13 @@ interface ProcessStore {
   pinnedPid: number | null;
   // PIDs whose fold state is flipped from the depth default (roots open one level,
   // deeper folded). Empty = pure default. See AUTO_EXPAND_DEPTH in processTree.
-  toggled: number[];
+  toggled: Set<number>;
   setProcesses: (ps: ProcessEntry[]) => void;
   setFilter: (f: string) => void;
   setSortBy: (s: SortKey) => void;
   setSelectedPid: (pid: number | null) => void;
   togglePin: (pid: number) => void;
   toggleFold: (pid: number) => void;
-  filtered: () => ProcessEntry[];
 }
 
 export const useProcessStore = create<ProcessStore>((set, get) => ({
@@ -69,7 +68,7 @@ export const useProcessStore = create<ProcessStore>((set, get) => ({
   sortBy: 'cpu',
   selectedPid: null,
   pinnedPid: null,
-  toggled: [],
+  toggled: new Set<number>(),
   setProcesses: (processes) => set({ processes }),
   setFilter: (filter) => set({ filter }),
   setSortBy: (sortBy) => set({ sortBy }),
@@ -85,13 +84,11 @@ export const useProcessStore = create<ProcessStore>((set, get) => ({
     const toggled = new Set(s.toggled);
     for (const mid of chain.slice(1, -1)) toggled.add(mid); // open depth-≥1 ancestors
     if (chain.length > 0) toggled.delete(chain[chain.length - 1]); // keep root default-open
-    return { pinnedPid: pid, toggled: [...toggled] };
+    return { pinnedPid: pid, toggled };
   }),
-  toggleFold: (pid) => set((s) => ({
-    toggled: s.toggled.includes(pid) ? s.toggled.filter((p) => p !== pid) : [...s.toggled, pid],
-  })),
-  filtered: () => {
-    const { processes, filter, sortBy } = get();
-    return filterProcesses(processes, filter, sortBy);
-  },
+  toggleFold: (pid) => set((s) => {
+    const next = new Set(s.toggled);
+    if (next.has(pid)) next.delete(pid); else next.add(pid);
+    return { toggled: next };
+  }),
 }));

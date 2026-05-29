@@ -43,7 +43,7 @@ export default function App() {
   const rows = useMemo(
     () => filter
       ? flatToTreeRows(filterProcesses(processes, filter, sortBy))
-      : buildVisibleTree(processes, new Set(toggled), sortBy, pinnedSet),
+      : buildVisibleTree(processes, toggled, sortBy, pinnedSet),
     [processes, filter, sortBy, toggled, pinnedSet],
   );
 
