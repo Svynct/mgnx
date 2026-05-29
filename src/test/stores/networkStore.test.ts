@@ -9,6 +9,10 @@ const iface: NetworkInterface = {
 };
 
 describe('networkStore', () => {
+  beforeEach(() => {
+    useNetworkStore.setState({ interfaces: [], connections: [], ifaceHistory: {} });
+  });
+
   it('starts empty and stores interfaces', () => {
     expect(useNetworkStore.getState().interfaces).toEqual([]);
     useNetworkStore.getState().setInterfaces([iface]);
@@ -59,5 +63,7 @@ describe('networkStore ifaceHistory', () => {
     const h = useNetworkStore.getState().ifaceHistory['eth0'];
     expect(h.rx).toHaveLength(60);
     expect(h.rx[0]).toBe(5);
+    expect(h.tx).toHaveLength(60);
+    expect(h.tx[0]).toBe(5);
   });
 });
