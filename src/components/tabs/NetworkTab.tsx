@@ -33,7 +33,7 @@ function InterfaceCard({ iface, history }: { iface: NetworkInterface; history: I
           <div style={{ fontSize: 10, color: 'var(--overlay0)' }}>Total: {fmtMb(iface.tx_total_mb)}</div>
         </div>
       </div>
-      {history && history.rx.length >= 2 && (
+      {history && history.rx.length >= 2 && history.tx.length >= 2 && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <Sparkline data={history.rx} color="var(--green)" max={Math.max(...history.rx, 1)} />
           <Sparkline data={history.tx} color="var(--blue)" max={Math.max(...history.tx, 1)} />

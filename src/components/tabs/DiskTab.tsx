@@ -79,7 +79,7 @@ function DiskCard({ disk, history }: { disk: DiskEntry; history: DiskHistory | u
           <div>{inodePct > 0 ? `${inodePct.toFixed(1)}%` : 'N/A'}</div>
         </div>
       </div>
-      {history && history.read.length >= 2 && (
+      {history && history.read.length >= 2 && history.write.length >= 2 && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
           <Sparkline data={history.read} color="var(--teal)" max={Math.max(...history.read, 1)} />
           <Sparkline data={history.write} color="var(--yellow)" max={Math.max(...history.write, 1)} />
