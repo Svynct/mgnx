@@ -1,4 +1,5 @@
-import { useNetworkStore, NetworkInterface, NetworkConnection } from '../../stores/networkStore';
+import { useNetworkStore, NetworkInterface, NetworkConnection, IfaceHistory } from '../../stores/networkStore';
+import { Sparkline } from '../Sparkline';
 
 function fmtSpeed(bps: number): string {
   if (bps >= 1_048_576) return `${(bps / 1_048_576).toFixed(1)} MB/s`;
@@ -10,7 +11,7 @@ function fmtMb(mb: number): string {
   return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`;
 }
 
-function InterfaceCard({ iface }: { iface: NetworkInterface }) {
+function InterfaceCard({ iface, history }: { iface: NetworkInterface; history: IfaceHistory | undefined }) {
   return (
     <div style={{ background: 'var(--mantle)', borderRadius: 8, padding: 16, marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
@@ -32,6 +33,12 @@ function InterfaceCard({ iface }: { iface: NetworkInterface }) {
           <div style={{ fontSize: 10, color: 'var(--overlay0)' }}>Total: {fmtMb(iface.tx_total_mb)}</div>
         </div>
       </div>
+      {history && history.rx.length >= 2 && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <Sparkline data={history.rx} color="var(--green)" max={Math.max(...history.rx, 1)} />
+          <Sparkline data={history.tx} color="var(--blue)" max={Math.max(...history.tx, 1)} />
+        </div>
+      )}
     </div>
   );
 }
@@ -68,13 +75,15 @@ function SystemConnections({ conns }: { conns: NetworkConnection[] }) {
 }
 
 export function NetworkTab() {
-  const { interfaces, connections } = useNetworkStore();
+  const { interfaces, connections, ifaceHistory } = useNetworkStore();
   if (interfaces.length === 0) {
     return <div style={{ color: 'var(--overlay0)', padding: 20 }}>No network interfaces detected.</div>;
   }
   return (
     <div>
-      {interfaces.map((iface) => <InterfaceCard key={iface.name} iface={iface} />)}
+      {interfaces.map((iface) => (
+        <InterfaceCard key={iface.name} iface={iface} history={ifaceHistory[iface.name]} />
+      ))}
       <SystemConnections conns={connections} />
     </div>
   );
