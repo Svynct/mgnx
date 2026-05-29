@@ -62,7 +62,7 @@ interface ProcessStore {
   toggleFold: (pid: number) => void;
 }
 
-export const useProcessStore = create<ProcessStore>((set, get) => ({
+export const useProcessStore = create<ProcessStore>((set) => ({
   processes: [],
   filter: '',
   sortBy: 'cpu',
