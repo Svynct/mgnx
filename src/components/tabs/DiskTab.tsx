@@ -1,4 +1,5 @@
 import { useDiskStore, DiskEntry } from '../../stores/diskStore';
+import { useThermalStore, DriveTemp } from '../../stores/thermalStore';
 
 function fmtBytes(b: number): string {
   if (b >= 1e12) return `${(b / 1e12).toFixed(2)} TB`;
@@ -10,6 +11,31 @@ function fmtSpeed(bps: number): string {
   if (bps >= 1_048_576) return `${(bps / 1_048_576).toFixed(1)} MB/s`;
   if (bps >= 1024) return `${(bps / 1024).toFixed(0)} KB/s`;
   return `${bps.toFixed(0)} B/s`;
+}
+
+function driveTempColor(c: number | null): string {
+  if (c === null) return 'var(--overlay0)';
+  if (c >= 65) return 'var(--red)';
+  if (c >= 50) return 'var(--yellow)';
+  return 'var(--green)';
+}
+
+function DriveTempSection({ drives }: { drives: DriveTemp[] }) {
+  if (drives.length === 0) return null;
+  return (
+    <div style={{ background: 'var(--mantle)', borderRadius: 8, padding: 16, marginBottom: 12 }}>
+      <div style={{ fontWeight: 500, marginBottom: 10 }}>Drive Temperatures</div>
+      {drives.map((d, i) => (
+        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12,
+          marginBottom: i < drives.length - 1 ? 6 : 0 }}>
+          <span style={{ color: 'var(--text)' }}>{d.name}</span>
+          <span style={{ color: driveTempColor(d.temp_c) }}>
+            {d.temp_c !== null ? `${d.temp_c.toFixed(0)}°C` : '—'}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function DiskCard({ disk }: { disk: DiskEntry }) {
@@ -58,8 +84,14 @@ function DiskCard({ disk }: { disk: DiskEntry }) {
 
 export function DiskTab() {
   const { disks } = useDiskStore();
+  const { drives } = useThermalStore();
   if (disks.length === 0) {
     return <div style={{ color: 'var(--overlay0)', padding: 20 }}>No disks detected.</div>;
   }
-  return <div>{disks.map((d) => <DiskCard key={d.mount} disk={d} />)}</div>;
+  return (
+    <div>
+      <DriveTempSection drives={drives} />
+      {disks.map((d) => <DiskCard key={d.mount} disk={d} />)}
+    </div>
+  );
 }

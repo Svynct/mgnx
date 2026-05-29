@@ -5,6 +5,7 @@ import { useResourceStore } from '../stores/resourceStore';
 import { useNetworkStore } from '../stores/networkStore';
 import { useDiskStore } from '../stores/diskStore';
 import { useGpuStore } from '../stores/gpuStore';
+import { useThermalStore } from '../stores/thermalStore';
 
 export function useTauriEvents() {
   useEffect(() => {
@@ -16,6 +17,7 @@ export function useTauriEvents() {
       listen('disk-update',      (e) => useDiskStore.getState().setDisks(e.payload as any)),
       listen('gpu-update',       (e) => useGpuStore.getState().setPayload(e.payload as any)),
       listen('gpu-available',    (e) => useGpuStore.getState().setAvailable(e.payload as boolean)),
+      listen('thermal-update',   (e) => useThermalStore.getState().setThermal(e.payload as any)),
     ];
     return () => { unlisteners.forEach((p) => p.then((fn) => fn())); };
   }, []);

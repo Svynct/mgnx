@@ -2,7 +2,9 @@
 //! syscalls, NVML, Tauri emit) so it can be unit-tested in isolation. The thin I/O
 //! wrappers live in poller.rs / commands.rs / gpu.rs and call into here.
 
-use crate::types::{GpuPayload, NetworkConnection};
+use std::path::Path;
+
+use crate::types::{DriveTemp, GpuPayload, NetworkConnection, ThermalPayload};
 
 // ── process signal / priority validation ────────────────────────────────────
 
@@ -213,6 +215,91 @@ pub fn amd_payload(json: &serde_json::Value) -> Option<GpuPayload> {
     })
 }
 
+// ── /sys/class/hwmon temperature sensors ────────────────────────────────────
+
+pub fn read_thermal() -> ThermalPayload {
+    ThermalPayload {
+        cpu_temp_c: read_cpu_temp(),
+        drives: read_drive_temps(),
+    }
+}
+
+fn read_cpu_temp() -> Option<f32> {
+    let hwmon_dir = std::fs::read_dir("/sys/class/hwmon").ok()?;
+    for entry in hwmon_dir.flatten() {
+        let path = entry.path();
+        let Some(chip) = hwmon_chip_name(&path) else { continue };
+        if chip == "k10temp" || chip == "coretemp" {
+            if let Some(temp) = read_hwmon_temp1(&path) {
+                return Some(temp);
+            }
+        }
+    }
+    None
+}
+
+fn read_drive_temps() -> Vec<DriveTemp> {
+    let Ok(hwmon_dir) = std::fs::read_dir("/sys/class/hwmon") else { return vec![] };
+    let mut drives = Vec::new();
+    for entry in hwmon_dir.flatten() {
+        let path = entry.path();
+        let Some(chip) = hwmon_chip_name(&path) else { continue };
+        if chip == "nvme" || chip == "drivetemp" {
+            let name = resolve_drive_name(&path, &chip);
+            let temp_c = read_hwmon_temp1(&path);
+            drives.push(DriveTemp { name, temp_c });
+        }
+    }
+    drives
+}
+
+fn hwmon_chip_name(hwmon_path: &Path) -> Option<String> {
+    std::fs::read_to_string(hwmon_path.join("name"))
+        .ok()
+        .map(|s| s.trim().to_string())
+}
+
+fn read_hwmon_temp1(hwmon_path: &Path) -> Option<f32> {
+    let raw = std::fs::read_to_string(hwmon_path.join("temp1_input")).ok()?;
+    raw.trim().parse::<i32>().ok().map(|millideg| millideg as f32 / 1000.0)
+}
+
+fn resolve_drive_name(hwmon_path: &Path, chip: &str) -> String {
+    if chip == "nvme" {
+        if let Ok(real) = std::fs::canonicalize(hwmon_path) {
+            if let Some(node) = nvme_node_from_path(&real) {
+                let model_path = format!("/sys/class/nvme/{node}/model");
+                if let Ok(model) = std::fs::read_to_string(&model_path) {
+                    return model.trim().to_string();
+                }
+                return node;
+            }
+        }
+    } else if chip == "drivetemp" {
+        if let Ok(real) = std::fs::canonicalize(hwmon_path.join("device")) {
+            if let Some(dev_name) = real.file_name().and_then(|n| n.to_str()) {
+                let model_path = format!("/sys/block/{dev_name}/device/model");
+                if let Ok(model) = std::fs::read_to_string(&model_path) {
+                    return model.trim().to_string();
+                }
+                return dev_name.to_string();
+            }
+        }
+    }
+    chip.to_string()
+}
+
+// Walks path components to find the nvme controller node (e.g. "nvme0").
+// Skips namespaces like "nvme0n1" (suffix contains non-digit chars).
+fn nvme_node_from_path(path: &Path) -> Option<String> {
+    path.components()
+        .filter_map(|c| c.as_os_str().to_str())
+        .find(|s| {
+            s.starts_with("nvme") && s.len() > 4 && s[4..].chars().all(|c| c.is_ascii_digit())
+        })
+        .map(|s| s.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -402,5 +489,27 @@ mod tests {
     fn amd_payload_none_without_card() {
         let json = serde_json::json!({ "other": 1 });
         assert!(amd_payload(&json).is_none());
+    }
+
+    #[test]
+    fn read_hwmon_temp1_parses_millidegrees() {
+        let dir = std::env::temp_dir().join(format!("mgnx_hwmon_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("temp1_input"), "45000\n").unwrap();
+        let result = read_hwmon_temp1(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!((result.unwrap() - 45.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn read_hwmon_temp1_returns_none_on_missing() {
+        let dir = std::path::PathBuf::from("/tmp/mgnx_hwmon_nonexistent_xyz");
+        assert!(read_hwmon_temp1(&dir).is_none());
+    }
+
+    #[test]
+    fn nvme_node_from_path_extracts_controller() {
+        let path = std::path::PathBuf::from("/sys/devices/pci0000:00/nvme/nvme0/hwmon5");
+        assert_eq!(nvme_node_from_path(&path), Some("nvme0".to_string()));
     }
 }

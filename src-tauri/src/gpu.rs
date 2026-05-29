@@ -5,14 +5,14 @@ use tauri::{AppHandle, Emitter};
 use crate::types::{GpuPayload, GpuProcess};
 
 pub enum GpuBackend {
-    Nvidia(Nvml),
+    Nvidia(Box<Nvml>),
     Amd,
     None,
 }
 
 pub fn detect_gpu() -> GpuBackend {
     if let Ok(nvml) = Nvml::init() {
-        return GpuBackend::Nvidia(nvml);
+        return GpuBackend::Nvidia(Box::new(nvml));
     }
     // Fallback: systems without the -dev package ship only the versioned runtime
     // lib (libnvidia-ml.so.1), so the default "libnvidia-ml.so" load fails.
@@ -20,7 +20,7 @@ pub fn detect_gpu() -> GpuBackend {
         .lib_path(std::ffi::OsStr::new("libnvidia-ml.so.1"))
         .init()
     {
-        return GpuBackend::Nvidia(nvml);
+        return GpuBackend::Nvidia(Box::new(nvml));
     }
     let out = Command::new("rocm-smi").arg("--showproductname").output();
     if out.map(|o| o.status.success()).unwrap_or(false) {

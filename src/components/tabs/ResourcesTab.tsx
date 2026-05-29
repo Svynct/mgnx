@@ -1,4 +1,5 @@
 import { useResourceStore } from '../../stores/resourceStore';
+import { useThermalStore } from '../../stores/thermalStore';
 import { Sparkline } from '../Sparkline';
 
 function UsageBar({ used, total, color }: { used: number; total: number; color: string }) {
@@ -15,6 +16,12 @@ function UsageBar({ used, total, color }: { used: number; total: number; color: 
   );
 }
 
+function tempHeat(c: number): string {
+  if (c >= 90) return 'var(--red)';
+  if (c >= 75) return 'var(--yellow)';
+  return 'var(--green)';
+}
+
 function coreHeat(usage: number): string {
   if (usage >= 75) return 'var(--red)';
   if (usage >= 50) return 'var(--yellow)';
@@ -25,13 +32,19 @@ function coreHeat(usage: number): string {
 export function ResourcesTab() {
   const { cpu_model, core_count, cores, ram_used_mb, ram_total_mb,
           swap_used_mb, swap_total_mb, cpuHistory, ramHistory } = useResourceStore();
+  const { cpu_temp_c } = useThermalStore();
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ background: 'var(--mantle)', borderRadius: 8, padding: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
           <span style={{ fontWeight: 500 }}>{cpu_model || 'CPU'}</span>
-          <span style={{ color: 'var(--overlay0)', fontSize: 11 }}>{core_count} cores</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: 'var(--overlay0)', fontSize: 11 }}>{core_count} cores</span>
+            {cpu_temp_c !== null && (
+              <span style={{ fontSize: 11, color: tempHeat(cpu_temp_c) }}>{cpu_temp_c.toFixed(0)}°C</span>
+            )}
+          </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 16 }}>
           {cores.map((c) => (

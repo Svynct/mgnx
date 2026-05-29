@@ -56,7 +56,7 @@ impl SystemPoller {
                     ProcessRefreshKind::everything(),
                 );
                 // Users change rarely; refresh every 30 ticks (≈30s).
-                if tick % 30 == 0 { users.refresh_list(); }
+                if tick.is_multiple_of(30) { users.refresh_list(); }
                 tick = tick.wrapping_add(1);
                 self.networks.refresh();
                 self.disks.refresh();
@@ -66,6 +66,7 @@ impl SystemPoller {
                 self.emit_network();
                 self.emit_connections();
                 self.emit_disks();
+                self.emit_thermal();
                 crate::gpu::poll_gpu(&self.gpu_backend, &self.handle);
                 // Re-broadcast each tick: the one-shot emit at setup races the
                 // webview mounting its listener and is usually missed.
@@ -84,7 +85,7 @@ impl SystemPoller {
         // Refresh PSS from /proc every 3rd tick; otherwise serve cached values.
         // This cuts /proc reads from N/tick to N/3 ticks on busy systems.
         self.pss_tick = self.pss_tick.wrapping_add(1);
-        let refresh_pss = self.pss_tick % 3 == 0;
+        let refresh_pss = self.pss_tick.is_multiple_of(3);
 
         let mut entries: Vec<ProcessEntry> = sys
             .processes()
@@ -208,6 +209,13 @@ impl SystemPoller {
         }
     }
 
+    fn emit_thermal(&self) {
+        let payload = crate::parse::read_thermal();
+        if let Err(e) = self.handle.emit("thermal-update", payload) {
+            eprintln!("emit thermal-update failed: {e}");
+        }
+    }
+
     fn emit_disks(&mut self) {
         let diskstats = std::fs::read_to_string("/proc/diskstats")
             .map(|s| crate::parse::parse_diskstats(&s))
@@ -266,7 +274,7 @@ fn interface_ips() -> HashMap<String, String> {
             if let Some(storage) = addr.address {
                 if let Some(sin) = storage.as_sockaddr_in() {
                     map.entry(addr.interface_name).or_insert_with(|| {
-                        format!("{}", std::net::Ipv4Addr::from(sin.ip()))
+                        format!("{}", sin.ip())
                     });
                 }
             }

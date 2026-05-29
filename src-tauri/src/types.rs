@@ -88,6 +88,18 @@ pub struct GpuPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThermalPayload {
+    pub cpu_temp_c: Option<f32>,
+    pub drives: Vec<DriveTemp>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriveTemp {
+    pub name: String,
+    pub temp_c: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessDetails {
     pub pid: u32,
     pub cmdline: String,
@@ -212,6 +224,28 @@ mod tests {
         let decoded: NetworkInterface = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.name, "eth0");
         assert!(decoded.is_up);
+    }
+
+    #[test]
+    fn thermal_payload_serde_roundtrip() {
+        let payload = ThermalPayload {
+            cpu_temp_c: Some(65.5),
+            drives: vec![DriveTemp { name: "Samsung SSD 980 PRO".to_string(), temp_c: Some(38.0) }],
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        let decoded: ThermalPayload = serde_json::from_str(&json).unwrap();
+        assert!((decoded.cpu_temp_c.unwrap() - 65.5).abs() < f32::EPSILON);
+        assert_eq!(decoded.drives.len(), 1);
+        assert_eq!(decoded.drives[0].name, "Samsung SSD 980 PRO");
+    }
+
+    #[test]
+    fn thermal_payload_serde_roundtrip_none() {
+        let payload = ThermalPayload { cpu_temp_c: None, drives: vec![] };
+        let json = serde_json::to_string(&payload).unwrap();
+        let decoded: ThermalPayload = serde_json::from_str(&json).unwrap();
+        assert!(decoded.cpu_temp_c.is_none());
+        assert!(decoded.drives.is_empty());
     }
 
     #[test]
