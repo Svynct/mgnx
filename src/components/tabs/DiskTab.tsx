@@ -1,5 +1,6 @@
-import { useDiskStore, DiskEntry } from '../../stores/diskStore';
+import { useDiskStore, DiskEntry, DiskHistory } from '../../stores/diskStore';
 import { useThermalStore, DriveTemp } from '../../stores/thermalStore';
+import { Sparkline } from '../Sparkline';
 
 function fmtBytes(b: number): string {
   if (b >= 1e12) return `${(b / 1e12).toFixed(2)} TB`;
@@ -38,7 +39,7 @@ function DriveTempSection({ drives }: { drives: DriveTemp[] }) {
   );
 }
 
-function DiskCard({ disk }: { disk: DiskEntry }) {
+function DiskCard({ disk, history }: { disk: DiskEntry; history: DiskHistory | undefined }) {
   const usedPct = disk.total_bytes > 0 ? (disk.used_bytes / disk.total_bytes) * 100 : 0;
   const inodePct = disk.inodes_total > 0 ? (disk.inodes_used / disk.inodes_total) * 100 : 0;
   const barColor = usedPct >= 90 ? 'var(--red)' : usedPct >= 75 ? 'var(--yellow)' : 'var(--teal)';
@@ -78,12 +79,18 @@ function DiskCard({ disk }: { disk: DiskEntry }) {
           <div>{inodePct > 0 ? `${inodePct.toFixed(1)}%` : 'N/A'}</div>
         </div>
       </div>
+      {history && history.read.length >= 2 && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
+          <Sparkline data={history.read} color="var(--teal)" max={Math.max(...history.read, 1)} />
+          <Sparkline data={history.write} color="var(--yellow)" max={Math.max(...history.write, 1)} />
+        </div>
+      )}
     </div>
   );
 }
 
 export function DiskTab() {
-  const { disks } = useDiskStore();
+  const { disks, diskHistory } = useDiskStore();
   const { drives } = useThermalStore();
   if (disks.length === 0) {
     return <div style={{ color: 'var(--overlay0)', padding: 20 }}>No disks detected.</div>;
@@ -91,7 +98,7 @@ export function DiskTab() {
   return (
     <div>
       <DriveTempSection drives={drives} />
-      {disks.map((d) => <DiskCard key={d.mount} disk={d} />)}
+      {disks.map((d) => <DiskCard key={d.mount} disk={d} history={diskHistory[d.mount]} />)}
     </div>
   );
 }
