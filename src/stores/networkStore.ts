@@ -11,9 +11,14 @@ export interface NetworkInterface {
   connections: NetworkConnection[];
 }
 
+export interface IfaceHistory { rx: number[]; tx: number[]; }
+
+const HISTORY_LEN = 60;
+
 interface NetworkStore {
   interfaces: NetworkInterface[];
   connections: NetworkConnection[];
+  ifaceHistory: Record<string, IfaceHistory>;
   setInterfaces: (ifaces: NetworkInterface[]) => void;
   setConnections: (conns: NetworkConnection[]) => void;
 }
@@ -21,6 +26,17 @@ interface NetworkStore {
 export const useNetworkStore = create<NetworkStore>((set) => ({
   interfaces: [],
   connections: [],
-  setInterfaces: (interfaces) => set({ interfaces }),
+  ifaceHistory: {},
+  setInterfaces: (ifaces) => set((s) => {
+    const ifaceHistory = { ...s.ifaceHistory };
+    for (const iface of ifaces) {
+      const prev = ifaceHistory[iface.name] ?? { rx: [], tx: [] };
+      ifaceHistory[iface.name] = {
+        rx: [...prev.rx, iface.rx_bytes_per_sec].slice(-HISTORY_LEN),
+        tx: [...prev.tx, iface.tx_bytes_per_sec].slice(-HISTORY_LEN),
+      };
+    }
+    return { interfaces: ifaces, ifaceHistory };
+  }),
   setConnections: (connections) => set({ connections }),
 }));
