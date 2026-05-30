@@ -384,6 +384,24 @@ pub fn parse_config_toml(content: &str) -> AppConfig {
             _ => cfg.temperature_unit,
         };
     }
+    if let Some(toml::Value::Table(at)) = t.get("alerts") {
+        // Accept both float and integer for thresholds (TOML differentiates,
+        // but writing 80 vs 80.0 in a config file shouldn't matter to users).
+        let f = |key: &str| at.get(key).and_then(|v|
+            v.as_float().or_else(|| v.as_integer().map(|i| i as f64)));
+        let u = |key: &str| at.get(key)
+            .and_then(|v| v.as_integer())
+            .and_then(|v| u32::try_from(v).ok())
+            .unwrap_or(0);
+        cfg.alerts.cpu_percent_threshold = f("cpu_percent_threshold");
+        cfg.alerts.cpu_percent_duration_secs = u("cpu_percent_duration_secs");
+        cfg.alerts.memory_percent_threshold = f("memory_percent_threshold");
+        cfg.alerts.memory_percent_duration_secs = u("memory_percent_duration_secs");
+        cfg.alerts.disk_percent_threshold = f("disk_percent_threshold");
+        cfg.alerts.disk_percent_duration_secs = u("disk_percent_duration_secs");
+        cfg.alerts.cpu_temp_threshold_c = f("cpu_temp_threshold_c");
+        cfg.alerts.cpu_temp_duration_secs = u("cpu_temp_duration_secs");
+    }
     cfg
 }
 
@@ -751,5 +769,45 @@ mod tests {
     fn parse_config_toml_invalid_syntax_returns_default() {
         let cfg = parse_config_toml("not = valid =\n[");
         assert!((cfg.refresh_rate_hz - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parse_config_toml_reads_cpu_alert_threshold() {
+        let toml = "[alerts]\ncpu_percent_threshold = 80\ncpu_percent_duration_secs = 10\n";
+        let cfg = parse_config_toml(toml);
+        assert_eq!(cfg.alerts.cpu_percent_threshold, Some(80.0));
+        assert_eq!(cfg.alerts.cpu_percent_duration_secs, 10);
+    }
+
+    #[test]
+    fn parse_config_toml_reads_all_alert_thresholds() {
+        let toml = r#"
+[alerts]
+cpu_percent_threshold = 80
+memory_percent_threshold = 90
+disk_percent_threshold = 95
+cpu_temp_threshold_c = 85
+"#;
+        let cfg = parse_config_toml(toml);
+        assert_eq!(cfg.alerts.cpu_percent_threshold, Some(80.0));
+        assert_eq!(cfg.alerts.memory_percent_threshold, Some(90.0));
+        assert_eq!(cfg.alerts.disk_percent_threshold, Some(95.0));
+        assert_eq!(cfg.alerts.cpu_temp_threshold_c, Some(85.0));
+    }
+
+    #[test]
+    fn parse_config_toml_alerts_absent_means_all_none() {
+        let cfg = parse_config_toml("refresh_rate_hz = 1.0\n");
+        assert!(cfg.alerts.cpu_percent_threshold.is_none());
+        assert!(cfg.alerts.memory_percent_threshold.is_none());
+        assert!(cfg.alerts.disk_percent_threshold.is_none());
+        assert!(cfg.alerts.cpu_temp_threshold_c.is_none());
+    }
+
+    #[test]
+    fn parse_config_toml_bogus_alert_type_falls_through() {
+        let toml = "[alerts]\ncpu_percent_threshold = \"high\"\n";
+        let cfg = parse_config_toml(toml);
+        assert!(cfg.alerts.cpu_percent_threshold.is_none());
     }
 }

@@ -12,11 +12,24 @@ pub enum SortDefault { Cpu, Mem, Name }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TempUnit { C, F }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct AlertThresholds {
+    pub cpu_percent_threshold: Option<f64>,
+    pub cpu_percent_duration_secs: u32,
+    pub memory_percent_threshold: Option<f64>,
+    pub memory_percent_duration_secs: u32,
+    pub disk_percent_threshold: Option<f64>,
+    pub disk_percent_duration_secs: u32,
+    pub cpu_temp_threshold_c: Option<f64>,
+    pub cpu_temp_duration_secs: u32,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct AppConfig {
     pub refresh_rate_hz: f64,
     pub default_sort: SortDefault,
     pub temperature_unit: TempUnit,
+    pub alerts: AlertThresholds,
 }
 
 impl Default for AppConfig {
@@ -25,6 +38,7 @@ impl Default for AppConfig {
             refresh_rate_hz: 1.0,
             default_sort: SortDefault::Cpu,
             temperature_unit: TempUnit::C,
+            alerts: AlertThresholds::default(),
         }
     }
 }
@@ -50,5 +64,10 @@ mod tests {
         assert!((d.refresh_rate_hz - 1.0).abs() < f64::EPSILON);
         assert_eq!(d.default_sort, SortDefault::Cpu);
         assert_eq!(d.temperature_unit, TempUnit::C);
+        assert!(d.alerts.cpu_percent_threshold.is_none());
+        assert!(d.alerts.memory_percent_threshold.is_none());
+        assert!(d.alerts.disk_percent_threshold.is_none());
+        assert!(d.alerts.cpu_temp_threshold_c.is_none());
+        assert_eq!(d.alerts.cpu_percent_duration_secs, 0);
     }
 }
