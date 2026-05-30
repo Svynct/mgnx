@@ -43,6 +43,11 @@ pub fn process_renice(pid: u32, priority: i32) -> Result<(), String> {
 }
 
 #[command]
+pub fn get_config() -> crate::config::AppConfig {
+    crate::config::load()
+}
+
+#[command]
 pub fn process_details(pid: u32) -> Result<ProcessDetails, String> {
     let base = format!("/proc/{pid}");
 

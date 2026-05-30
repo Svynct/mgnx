@@ -24,6 +24,7 @@ pub fn run() {
             commands::process_resume,
             commands::process_renice,
             commands::process_details,
+            commands::get_config,
         ])
         .setup(|app| {
             // The poller broadcasts `gpu-available` every tick (the frontend
