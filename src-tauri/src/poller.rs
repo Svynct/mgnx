@@ -4,7 +4,7 @@ use std::time::Duration;
 use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, Networks, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, Users};
 use tauri::{AppHandle, Emitter};
 
-use crate::types::{CpuCoreUsage, DiskEntry, NetworkConnection, NetworkInterface, ProcessEntry, ResourcesPayload};
+use crate::types::{BatteryInfo, CpuCoreUsage, DiskEntry, NetworkConnection, NetworkInterface, ProcessEntry, ResourcesPayload};
 
 pub struct SystemPoller {
     pub handle: AppHandle,
@@ -70,6 +70,7 @@ impl SystemPoller {
                 self.emit_connections();
                 self.emit_disks();
                 self.emit_thermal();
+                self.emit_battery();
                 crate::gpu::poll_gpu(&self.gpu_backend, &self.handle);
                 // Re-broadcast each tick: the one-shot emit at setup races the
                 // webview mounting its listener and is usually missed.
@@ -255,6 +256,13 @@ impl SystemPoller {
         }
     }
 
+    fn emit_battery(&self) {
+        let payload = read_battery();
+        if let Err(e) = self.handle.emit("battery-update", payload) {
+            eprintln!("emit battery-update failed: {e}");
+        }
+    }
+
     fn emit_disks(&mut self) {
         let diskstats = std::fs::read_to_string("/proc/diskstats")
             .map(|s| crate::parse::parse_diskstats(&s))
@@ -357,6 +365,45 @@ fn read_cpu_freq_mhz(index: usize) -> Option<u32> {
         format!("/sys/devices/system/cpu/cpu{index}/cpufreq/scaling_cur_freq")
     ).ok()?;
     crate::parse::parse_cpu_freq_mhz(&content)
+}
+
+// Scans /sys/class/power_supply/ for a BAT* entry and reads its charge state.
+// None when the directory is missing or no battery is present (desktops, VMs).
+fn read_battery() -> Option<BatteryInfo> {
+    let dir = std::fs::read_dir("/sys/class/power_supply/").ok()?;
+    let bat_path = dir
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .find(|p| p.file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n.to_uppercase().starts_with("BAT"))
+            .unwrap_or(false))?;
+
+    let read_u64 = |name: &str| -> Option<u64> {
+        std::fs::read_to_string(bat_path.join(name))
+            .ok()
+            .and_then(|s| crate::parse::parse_sysfs_uint(&s))
+    };
+    let read_str = |name: &str| -> Option<String> {
+        std::fs::read_to_string(bat_path.join(name))
+            .ok()
+            .map(|s| s.trim().to_string())
+    };
+
+    let percentage = read_u64("capacity")? as u8;
+    let status = read_str("status").unwrap_or_else(|| "Unknown".to_string());
+
+    let time_remaining_secs = match (read_u64("energy_full"), read_u64("energy_now"), read_u64("power_now")) {
+        (Some(full), Some(now), Some(rate)) =>
+            crate::parse::battery_time_remaining_secs(&status, now, full, rate),
+        _ => match (read_u64("charge_full"), read_u64("charge_now"), read_u64("current_now")) {
+            (Some(full), Some(now), Some(rate)) =>
+                crate::parse::battery_time_remaining_secs(&status, now, full, rate),
+            _ => None,
+        },
+    };
+
+    Some(BatteryInfo { percentage, status, time_remaining_secs })
 }
 
 fn parse_proc_connections() -> Vec<NetworkConnection> {
