@@ -93,6 +93,25 @@ pub fn pss_mb(smaps_rollup: &str) -> Option<f64> {
     None
 }
 
+/// Extracts (read_bytes, write_bytes) from a /proc/<pid>/io body. These are
+/// post-page-cache I/O — what actually hit the block layer. Returns None when
+/// either field is missing or unparseable.
+pub fn parse_pid_io(content: &str) -> Option<(u64, u64)> {
+    let mut read_bytes: Option<u64> = None;
+    let mut write_bytes: Option<u64> = None;
+    for line in content.lines() {
+        if let Some(rest) = line.strip_prefix("read_bytes:") {
+            read_bytes = rest.trim().parse().ok();
+        } else if let Some(rest) = line.strip_prefix("write_bytes:") {
+            write_bytes = rest.trim().parse().ok();
+        }
+    }
+    match (read_bytes, write_bytes) {
+        (Some(r), Some(w)) => Some((r, w)),
+        _ => None,
+    }
+}
+
 // ── /proc/net/tcp connection parsing ──────────────────────────────────────────
 
 /// Local port from a "hexip:hexport" column.
@@ -511,5 +530,35 @@ mod tests {
     fn nvme_node_from_path_extracts_controller() {
         let path = std::path::PathBuf::from("/sys/devices/pci0000:00/nvme/nvme0/hwmon5");
         assert_eq!(nvme_node_from_path(&path), Some("nvme0".to_string()));
+    }
+
+    #[test]
+    fn parse_pid_io_extracts_read_and_write_bytes() {
+        let content = "rchar: 4428\nwchar: 0\nsyscr: 9\nsyscw: 0\nread_bytes: 12345\nwrite_bytes: 67890\ncancelled_write_bytes: 0\n";
+        assert_eq!(parse_pid_io(content), Some((12345, 67890)));
+    }
+
+    #[test]
+    fn parse_pid_io_returns_none_when_read_bytes_missing() {
+        let content = "rchar: 4428\nwrite_bytes: 67890\n";
+        assert_eq!(parse_pid_io(content), None);
+    }
+
+    #[test]
+    fn parse_pid_io_returns_none_when_write_bytes_missing() {
+        let content = "rchar: 4428\nread_bytes: 12345\n";
+        assert_eq!(parse_pid_io(content), None);
+    }
+
+    #[test]
+    fn parse_pid_io_returns_none_on_malformed_value() {
+        let content = "read_bytes: abc\nwrite_bytes: 0\n";
+        assert_eq!(parse_pid_io(content), None);
+    }
+
+    #[test]
+    fn parse_pid_io_ignores_unrelated_lines() {
+        let content = "garbage\nread_bytes: 7\nmore garbage\nwrite_bytes: 11\n";
+        assert_eq!(parse_pid_io(content), Some((7, 11)));
     }
 }
