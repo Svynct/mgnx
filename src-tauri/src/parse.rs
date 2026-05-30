@@ -4,6 +4,7 @@
 
 use std::path::Path;
 
+use crate::config::AppConfig;
 use crate::types::{DriveTemp, GpuPayload, NetworkConnection, ThermalPayload};
 
 // ── process signal / priority validation ────────────────────────────────────
@@ -355,6 +356,37 @@ fn nvme_node_from_path(path: &Path) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+// ── user config ───────────────────────────────────────────────────────────────
+
+/// Parses a config.toml body into AppConfig. Missing fields fall back to default,
+/// out-of-range refresh_rate_hz is clamped to [0.5, 5.0]. Syntax error returns
+/// the default config. Forgiving by design — never panic on user input.
+pub fn parse_config_toml(content: &str) -> AppConfig {
+    let mut cfg = AppConfig::default();
+    let parsed: Result<toml::Value, _> = toml::from_str(content);
+    let Ok(toml::Value::Table(t)) = parsed else { return cfg; };
+
+    if let Some(v) = t.get("refresh_rate_hz").and_then(|v| v.as_float()) {
+        cfg.refresh_rate_hz = v.clamp(0.5, 5.0);
+    }
+    if let Some(s) = t.get("default_sort").and_then(|v| v.as_str()) {
+        cfg.default_sort = match s {
+            "cpu" => crate::config::SortDefault::Cpu,
+            "mem" => crate::config::SortDefault::Mem,
+            "name" => crate::config::SortDefault::Name,
+            _ => cfg.default_sort,
+        };
+    }
+    if let Some(s) = t.get("temperature_unit").and_then(|v| v.as_str()) {
+        cfg.temperature_unit = match s.to_uppercase().as_str() {
+            "C" => crate::config::TempUnit::C,
+            "F" => crate::config::TempUnit::F,
+            _ => cfg.temperature_unit,
+        };
+    }
+    cfg
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -663,5 +695,61 @@ mod tests {
     #[test]
     fn battery_time_remaining_secs_already_full_when_charging() {
         assert_eq!(battery_time_remaining_secs("Charging", 70, 60, 10), None);
+    }
+
+    #[test]
+    fn parse_config_toml_empty_returns_default() {
+        let cfg = parse_config_toml("");
+        assert!((cfg.refresh_rate_hz - 1.0).abs() < f64::EPSILON);
+        assert_eq!(cfg.default_sort, crate::config::SortDefault::Cpu);
+        assert_eq!(cfg.temperature_unit, crate::config::TempUnit::C);
+    }
+
+    #[test]
+    fn parse_config_toml_overrides_refresh_rate() {
+        let cfg = parse_config_toml("refresh_rate_hz = 2.0\n");
+        assert!((cfg.refresh_rate_hz - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parse_config_toml_clamps_high_refresh_rate() {
+        let cfg = parse_config_toml("refresh_rate_hz = 10.0\n");
+        assert!((cfg.refresh_rate_hz - 5.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parse_config_toml_clamps_low_refresh_rate() {
+        let cfg = parse_config_toml("refresh_rate_hz = 0.1\n");
+        assert!((cfg.refresh_rate_hz - 0.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parse_config_toml_reads_default_sort_mem() {
+        let cfg = parse_config_toml("default_sort = \"mem\"\n");
+        assert_eq!(cfg.default_sort, crate::config::SortDefault::Mem);
+    }
+
+    #[test]
+    fn parse_config_toml_unknown_sort_falls_back_to_default() {
+        let cfg = parse_config_toml("default_sort = \"garbage\"\n");
+        assert_eq!(cfg.default_sort, crate::config::SortDefault::Cpu);
+    }
+
+    #[test]
+    fn parse_config_toml_reads_temperature_unit_f() {
+        let cfg = parse_config_toml("temperature_unit = \"F\"\n");
+        assert_eq!(cfg.temperature_unit, crate::config::TempUnit::F);
+    }
+
+    #[test]
+    fn parse_config_toml_temperature_unit_is_case_insensitive() {
+        let cfg = parse_config_toml("temperature_unit = \"f\"\n");
+        assert_eq!(cfg.temperature_unit, crate::config::TempUnit::F);
+    }
+
+    #[test]
+    fn parse_config_toml_invalid_syntax_returns_default() {
+        let cfg = parse_config_toml("not = valid =\n[");
+        assert!((cfg.refresh_rate_hz - 1.0).abs() < f64::EPSILON);
     }
 }

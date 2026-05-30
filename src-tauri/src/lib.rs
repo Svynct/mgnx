@@ -3,6 +3,7 @@ pub mod parse;
 pub mod poller;
 pub mod gpu;
 pub mod commands;
+pub mod config;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
