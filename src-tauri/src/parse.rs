@@ -100,6 +100,35 @@ pub fn parse_cpu_freq_mhz(content: &str) -> Option<u32> {
     Some((khz / 1000) as u32)
 }
 
+/// Parses a single-line uint sysfs file body. Strips whitespace. Returns None
+/// on malformed input.
+pub fn parse_sysfs_uint(content: &str) -> Option<u64> {
+    content.trim().parse().ok()
+}
+
+/// Computes battery time remaining in seconds. Units must match (µWh + µW,
+/// or µAh + µA). Returns None when status is neither Charging nor
+/// Discharging, the rate is 0, or charging with current >= full.
+pub fn battery_time_remaining_secs(
+    status: &str,
+    now: u64,
+    full: u64,
+    rate: u64,
+) -> Option<u32> {
+    if rate == 0 {
+        return None;
+    }
+    let hours = match status {
+        "Discharging" => now as f64 / rate as f64,
+        "Charging" => {
+            if full <= now { return None; }
+            (full - now) as f64 / rate as f64
+        }
+        _ => return None,
+    };
+    Some((hours * 3600.0) as u32)
+}
+
 /// Extracts (read_bytes, write_bytes) from a /proc/<pid>/io body. These are
 /// post-page-cache I/O — what actually hit the block layer. Returns None when
 /// either field is missing or unparseable.
@@ -592,5 +621,47 @@ mod tests {
     #[test]
     fn parse_cpu_freq_mhz_tolerates_whitespace() {
         assert_eq!(parse_cpu_freq_mhz("  3200000  \n"), Some(3200));
+    }
+
+    #[test]
+    fn parse_sysfs_uint_handles_normal_value() {
+        assert_eq!(parse_sysfs_uint("76\n"), Some(76));
+    }
+
+    #[test]
+    fn parse_sysfs_uint_strips_whitespace() {
+        assert_eq!(parse_sysfs_uint("  42  "), Some(42));
+    }
+
+    #[test]
+    fn parse_sysfs_uint_returns_none_on_garbage() {
+        assert_eq!(parse_sysfs_uint("nope"), None);
+    }
+
+    #[test]
+    fn battery_time_remaining_secs_discharging() {
+        let out = battery_time_remaining_secs("Discharging", 30_000_000, 60_000_000, 10_000_000);
+        assert_eq!(out, Some(10800));
+    }
+
+    #[test]
+    fn battery_time_remaining_secs_charging() {
+        let out = battery_time_remaining_secs("Charging", 30_000_000, 60_000_000, 10_000_000);
+        assert_eq!(out, Some(10800));
+    }
+
+    #[test]
+    fn battery_time_remaining_secs_full_returns_none() {
+        assert_eq!(battery_time_remaining_secs("Full", 60, 60, 0), None);
+    }
+
+    #[test]
+    fn battery_time_remaining_secs_zero_rate_returns_none() {
+        assert_eq!(battery_time_remaining_secs("Discharging", 60, 60, 0), None);
+    }
+
+    #[test]
+    fn battery_time_remaining_secs_already_full_when_charging() {
+        assert_eq!(battery_time_remaining_secs("Charging", 70, 60, 10), None);
     }
 }
