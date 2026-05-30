@@ -1,5 +1,7 @@
 import { useDiskStore, DiskEntry, DiskHistory } from '../../stores/diskStore';
 import { useThermalStore, DriveTemp } from '../../stores/thermalStore';
+import { useConfigStore } from '../../stores/configStore';
+import { formatTemp } from '../../lib/temp';
 import { Sparkline } from '../Sparkline';
 
 function fmtBytes(b: number): string {
@@ -22,6 +24,7 @@ function driveTempColor(c: number | null): string {
 }
 
 function DriveTempSection({ drives }: { drives: DriveTemp[] }) {
+  const tempUnit = useConfigStore((s) => s.config.temperature_unit);
   if (drives.length === 0) return null;
   return (
     <div style={{ background: 'var(--mantle)', borderRadius: 8, padding: 16, marginBottom: 12 }}>
@@ -31,7 +34,7 @@ function DriveTempSection({ drives }: { drives: DriveTemp[] }) {
           marginBottom: i < drives.length - 1 ? 6 : 0 }}>
           <span style={{ color: 'var(--text)' }}>{d.name}</span>
           <span style={{ color: driveTempColor(d.temp_c) }}>
-            {d.temp_c !== null ? `${d.temp_c.toFixed(0)}°C` : '—'}
+            {d.temp_c !== null ? formatTemp(d.temp_c, tempUnit) : '—'}
           </span>
         </div>
       ))}

@@ -1,6 +1,8 @@
 import { useResourceStore } from '../../stores/resourceStore';
 import { useThermalStore } from '../../stores/thermalStore';
 import { useBatteryStore } from '../../stores/batteryStore';
+import { useConfigStore } from '../../stores/configStore';
+import { formatTemp } from '../../lib/temp';
 import { Sparkline } from '../Sparkline';
 
 function UsageBar({ used, total, color }: { used: number; total: number; color: string }) {
@@ -53,6 +55,7 @@ export function ResourcesTab() {
           swap_used_mb, swap_total_mb, cpuHistory, ramHistory } = useResourceStore();
   const { cpu_temp_c } = useThermalStore();
   const battery = useBatteryStore((s) => s.battery);
+  const tempUnit = useConfigStore((s) => s.config.temperature_unit);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -62,7 +65,7 @@ export function ResourcesTab() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ color: 'var(--overlay0)', fontSize: 11 }}>{core_count} cores</span>
             {cpu_temp_c !== null && (
-              <span style={{ fontSize: 11, color: tempHeat(cpu_temp_c) }}>{cpu_temp_c.toFixed(0)}°C</span>
+              <span style={{ fontSize: 11, color: tempHeat(cpu_temp_c) }}>{formatTemp(cpu_temp_c, tempUnit)}</span>
             )}
             {battery !== null && (
               <span style={{ fontSize: 11, color: batteryHeat(battery.percentage) }}>

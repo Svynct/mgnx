@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { useTauriEvents } from './hooks/useTauriEvents';
 import { useProcessStore, filterProcesses } from './stores/processStore';
 import { buildVisibleTree, flatToTreeRows, ancestorPids } from './lib/processTree';
 import { useGpuStore } from './stores/gpuStore';
+import { useConfigStore, AppConfig } from './stores/configStore';
 import { isEditableTarget } from './lib/keyboard';
 import { TopBar } from './components/TopBar';
 import { TabBar, TabName } from './components/TabBar';
@@ -15,6 +17,17 @@ import { GpuTab } from './components/tabs/GpuTab';
 export default function App() {
   useTauriEvents();
   const [tab, setTab] = useState<TabName>('processes');
+
+  // Load user config once at mount. Apply the default sort only if the user
+  // hasn't already moved off 'cpu' (the initial store default).
+  useEffect(() => {
+    invoke<AppConfig>('get_config').then((cfg) => {
+      useConfigStore.getState().setConfig(cfg);
+      if (useProcessStore.getState().sortBy === 'cpu' && cfg.default_sort !== 'cpu') {
+        useProcessStore.getState().setSortBy(cfg.default_sort);
+      }
+    }).catch(() => { /* keep defaults on load failure */ });
+  }, []);
 
   const processes = useProcessStore((s) => s.processes);
   const filter = useProcessStore((s) => s.filter);
