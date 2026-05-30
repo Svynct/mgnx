@@ -356,6 +356,39 @@ fn nvme_node_from_path(path: &Path) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+// ── container detection (/proc/<pid>/cgroup) ────────────────────────────────
+
+/// Extracts a 12-char container ID prefix from /proc/<pid>/cgroup body, or None
+/// when the process is on the host. Handles cgroup v1 (`/docker/<id>`) and the
+/// cgroup-v2 `*-<id>.scope` patterns used by docker, crio, cri-containerd, and
+/// libpod (podman).
+pub fn parse_container_id(cgroup: &str) -> Option<String> {
+    for line in cgroup.lines() {
+        for segment in line.split('/') {
+            if let Some(id) = extract_container_id_from_segment(segment) {
+                return Some(id);
+            }
+        }
+    }
+    None
+}
+
+fn extract_container_id_from_segment(seg: &str) -> Option<String> {
+    if seg.len() >= 64 && seg.chars().take(64).all(|c| c.is_ascii_hexdigit()) {
+        return Some(seg[..12].to_lowercase());
+    }
+    for prefix in &["docker-", "crio-", "cri-containerd-", "libpod-"] {
+        if let Some(rest) = seg.strip_prefix(prefix) {
+            if let Some(id) = rest.strip_suffix(".scope") {
+                if id.len() >= 12 && id.chars().take(12).all(|c| c.is_ascii_hexdigit()) {
+                    return Some(id[..12].to_lowercase());
+                }
+            }
+        }
+    }
+    None
+}
+
 // ── user config ───────────────────────────────────────────────────────────────
 
 /// Parses a config.toml body into AppConfig. Missing fields fall back to default,
@@ -809,5 +842,53 @@ cpu_temp_threshold_c = 85
         let toml = "[alerts]\ncpu_percent_threshold = \"high\"\n";
         let cfg = parse_config_toml(toml);
         assert!(cfg.alerts.cpu_percent_threshold.is_none());
+    }
+
+    #[test]
+    fn parse_container_id_cgroup_v1_docker() {
+        // 64-char hex docker container ID
+        let s = "12:devices:/docker/abc123def4560000000000000000000000000000000000000000000000000000\n";
+        assert_eq!(parse_container_id(s), Some("abc123def456".to_string()));
+    }
+
+    #[test]
+    fn parse_container_id_cgroup_v2_docker_scope() {
+        let s = "0::/system.slice/docker-abc123def4567890abcdef.scope\n";
+        assert_eq!(parse_container_id(s), Some("abc123def456".to_string()));
+    }
+
+    #[test]
+    fn parse_container_id_crio_scope() {
+        let s = "0::/kubepods.slice/.../crio-abc123def4567890abcdef.scope\n";
+        assert_eq!(parse_container_id(s), Some("abc123def456".to_string()));
+    }
+
+    #[test]
+    fn parse_container_id_cri_containerd_scope() {
+        let s = "0::/kubepods.slice/.../cri-containerd-abc123def4567890abcdef.scope\n";
+        assert_eq!(parse_container_id(s), Some("abc123def456".to_string()));
+    }
+
+    #[test]
+    fn parse_container_id_libpod_scope() {
+        let s = "0::/user.slice/.../libpod-abc123def4567890abcdef.scope\n";
+        assert_eq!(parse_container_id(s), Some("abc123def456".to_string()));
+    }
+
+    #[test]
+    fn parse_container_id_host_user_slice_is_none() {
+        let s = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-ghostty.scope\n";
+        assert_eq!(parse_container_id(s), None);
+    }
+
+    #[test]
+    fn parse_container_id_empty_is_none() {
+        assert_eq!(parse_container_id(""), None);
+    }
+
+    #[test]
+    fn parse_container_id_lowercases_id() {
+        let s = "0::/system.slice/docker-ABC123DEF4567890ABCDEF.scope\n";
+        assert_eq!(parse_container_id(s), Some("abc123def456".to_string()));
     }
 }
