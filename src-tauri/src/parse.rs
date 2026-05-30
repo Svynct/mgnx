@@ -93,6 +93,13 @@ pub fn pss_mb(smaps_rollup: &str) -> Option<f64> {
     None
 }
 
+/// Reads scaling_cur_freq content (a single integer in kHz) and returns the value
+/// in MHz. Returns None when the input is empty or malformed.
+pub fn parse_cpu_freq_mhz(content: &str) -> Option<u32> {
+    let khz: u64 = content.trim().parse().ok()?;
+    Some((khz / 1000) as u32)
+}
+
 /// Extracts (read_bytes, write_bytes) from a /proc/<pid>/io body. These are
 /// post-page-cache I/O — what actually hit the block layer. Returns None when
 /// either field is missing or unparseable.
@@ -560,5 +567,30 @@ mod tests {
     fn parse_pid_io_ignores_unrelated_lines() {
         let content = "garbage\nread_bytes: 7\nmore garbage\nwrite_bytes: 11\n";
         assert_eq!(parse_pid_io(content), Some((7, 11)));
+    }
+
+    #[test]
+    fn parse_cpu_freq_mhz_converts_khz_to_mhz() {
+        assert_eq!(parse_cpu_freq_mhz("1764477\n"), Some(1764));
+    }
+
+    #[test]
+    fn parse_cpu_freq_mhz_handles_no_trailing_newline() {
+        assert_eq!(parse_cpu_freq_mhz("2400000"), Some(2400));
+    }
+
+    #[test]
+    fn parse_cpu_freq_mhz_returns_none_on_empty() {
+        assert_eq!(parse_cpu_freq_mhz(""), None);
+    }
+
+    #[test]
+    fn parse_cpu_freq_mhz_returns_none_on_garbage() {
+        assert_eq!(parse_cpu_freq_mhz("not a number"), None);
+    }
+
+    #[test]
+    fn parse_cpu_freq_mhz_tolerates_whitespace() {
+        assert_eq!(parse_cpu_freq_mhz("  3200000  \n"), Some(3200));
     }
 }
