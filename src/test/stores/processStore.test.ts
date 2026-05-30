@@ -10,6 +10,7 @@ function proc(pid: number, ppid = 0, overrides: Partial<ProcessEntry> = {}): Pro
     pid, ppid, name: `p${pid}`, cpu_percent: 0, memory_mb: 0, status: 'R', user: 'u', threads: 1,
     disk_read_bytes_per_sec: null, disk_write_bytes_per_sec: null,
     disk_read_total_mb: null, disk_write_total_mb: null,
+    container_id: null,
     ...overrides,
   };
 }

@@ -23,6 +23,7 @@ function proc(over: Partial<ProcessEntry> & { pid: number }): ProcessEntry {
     disk_write_bytes_per_sec: null,
     disk_read_total_mb: null,
     disk_write_total_mb: null,
+    container_id: null,
     ...over,
   };
 }

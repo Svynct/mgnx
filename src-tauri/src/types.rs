@@ -14,6 +14,7 @@ pub struct ProcessEntry {
     pub disk_write_bytes_per_sec: Option<f64>,
     pub disk_read_total_mb: Option<f64>,
     pub disk_write_total_mb: Option<f64>,
+    pub container_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,6 +150,7 @@ mod tests {
             disk_write_bytes_per_sec: None,
             disk_read_total_mb: None,
             disk_write_total_mb: None,
+            container_id: None,
         };
         let json = serde_json::to_string(&entry).unwrap();
         let decoded: ProcessEntry = serde_json::from_str(&json).unwrap();

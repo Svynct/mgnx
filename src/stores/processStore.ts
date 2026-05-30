@@ -14,6 +14,7 @@ export interface ProcessEntry {
   disk_write_bytes_per_sec: number | null;
   disk_read_total_mb: number | null;
   disk_write_total_mb: number | null;
+  container_id: string | null;
 }
 
 type SortKey = 'cpu' | 'mem' | 'name' | 'disk_read' | 'disk_write';

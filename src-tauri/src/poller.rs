@@ -165,6 +165,7 @@ impl SystemPoller {
                     disk_write_bytes_per_sec,
                     disk_read_total_mb,
                     disk_write_total_mb,
+                    container_id: read_container_id(pid),
                 }
             })
             .collect();
@@ -410,6 +411,13 @@ fn read_pid_io(pid: u32) -> Option<(u64, u64)> {
     crate::parse::parse_pid_io(&content)
 }
 
+// Reads /proc/<pid>/cgroup and extracts a 12-char container ID, or None when
+// the process runs on the host.
+fn read_container_id(pid: u32) -> Option<String> {
+    let content = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).ok()?;
+    crate::parse::parse_container_id(&content)
+}
+
 // Reads /sys/devices/system/cpu/cpu<N>/cpufreq/scaling_cur_freq and converts
 // kHz → MHz. None on systems without cpufreq (some VMs, older kernels).
 fn read_cpu_freq_mhz(index: usize) -> Option<u32> {
@@ -493,6 +501,7 @@ mod tests {
                 disk_write_bytes_per_sec: None,
                 disk_read_total_mb: None,
                 disk_write_total_mb: None,
+                container_id: None,
             },
             ProcessEntry {
                 pid: 2,
@@ -507,6 +516,7 @@ mod tests {
                 disk_write_bytes_per_sec: None,
                 disk_read_total_mb: None,
                 disk_write_total_mb: None,
+                container_id: None,
             },
             ProcessEntry {
                 pid: 3,
@@ -521,6 +531,7 @@ mod tests {
                 disk_write_bytes_per_sec: None,
                 disk_read_total_mb: None,
                 disk_write_total_mb: None,
+                container_id: None,
             },
         ];
         entries.sort_by(|a, b| {
@@ -550,6 +561,7 @@ mod tests {
                 disk_write_bytes_per_sec: None,
                 disk_read_total_mb: None,
                 disk_write_total_mb: None,
+                container_id: None,
             },
             ProcessEntry {
                 pid: 2,
@@ -564,6 +576,7 @@ mod tests {
                 disk_write_bytes_per_sec: None,
                 disk_read_total_mb: None,
                 disk_write_total_mb: None,
+                container_id: None,
             },
         ];
         // Should not panic:

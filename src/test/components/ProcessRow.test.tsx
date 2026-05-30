@@ -7,6 +7,7 @@ const base = {
   status: 'Running', user: 'alice', threads: 1,
   disk_read_bytes_per_sec: null, disk_write_bytes_per_sec: null,
   disk_read_total_mb: null, disk_write_total_mb: null,
+  container_id: null,
 };
 
 const treeProps = {
