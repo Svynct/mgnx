@@ -1,5 +1,6 @@
 import { useResourceStore } from '../../stores/resourceStore';
 import { useThermalStore } from '../../stores/thermalStore';
+import { useBatteryStore } from '../../stores/batteryStore';
 import { Sparkline } from '../Sparkline';
 
 function UsageBar({ used, total, color }: { used: number; total: number; color: string }) {
@@ -34,10 +35,24 @@ function formatMhz(mhz: number): string {
   return `${mhz} MHz`;
 }
 
+function batteryHeat(pct: number): string {
+  if (pct < 15) return 'var(--red)';
+  if (pct < 30) return 'var(--yellow)';
+  return 'var(--green)';
+}
+
+function formatHm(s: number): string {
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
 export function ResourcesTab() {
   const { cpu_model, core_count, cores, ram_used_mb, ram_total_mb,
           swap_used_mb, swap_total_mb, cpuHistory, ramHistory } = useResourceStore();
   const { cpu_temp_c } = useThermalStore();
+  const battery = useBatteryStore((s) => s.battery);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -48,6 +63,12 @@ export function ResourcesTab() {
             <span style={{ color: 'var(--overlay0)', fontSize: 11 }}>{core_count} cores</span>
             {cpu_temp_c !== null && (
               <span style={{ fontSize: 11, color: tempHeat(cpu_temp_c) }}>{cpu_temp_c.toFixed(0)}°C</span>
+            )}
+            {battery !== null && (
+              <span style={{ fontSize: 11, color: batteryHeat(battery.percentage) }}>
+                {battery.percentage}% {battery.status}
+                {battery.time_remaining_secs !== null && ` · ${formatHm(battery.time_remaining_secs)}`}
+              </span>
             )}
           </div>
         </div>
