@@ -19,6 +19,10 @@ function proc(over: Partial<ProcessEntry> & { pid: number }): ProcessEntry {
     status: 'R',
     user: 'u',
     threads: 1,
+    disk_read_bytes_per_sec: null,
+    disk_write_bytes_per_sec: null,
+    disk_read_total_mb: null,
+    disk_write_total_mb: null,
     ...over,
   };
 }
@@ -217,5 +221,71 @@ describe('flatToTreeRows', () => {
   it('preserves input order', () => {
     const rows = flatToTreeRows([proc({ pid: 3 }), proc({ pid: 1 }), proc({ pid: 2 })]);
     expect(pids(rows)).toEqual([3, 1, 2]);
+  });
+
+  it('mirrors own disk values into accum and hasData', () => {
+    const rows = flatToTreeRows([
+      proc({ pid: 1, disk_read_bytes_per_sec: 10, disk_write_bytes_per_sec: null }),
+      proc({ pid: 2 }),
+    ]);
+    expect(rows[0].diskReadAccum).toBe(10);
+    expect(rows[0].diskReadHasData).toBe(true);
+    expect(rows[0].diskWriteAccum).toBe(0);
+    expect(rows[0].diskWriteHasData).toBe(false);
+    expect(rows[1].diskReadHasData).toBe(false);
+  });
+});
+
+describe('buildVisibleTree — disk I/O accumulation', () => {
+  it('accumulates readable child rate into parent and tracks hasData', () => {
+    const tree = [
+      proc({ pid: 1, ppid: 0 }),
+      proc({ pid: 2, ppid: 1, disk_read_bytes_per_sec: 100 }),
+      proc({ pid: 3, ppid: 1 }),
+    ];
+    const rows = buildVisibleTree(tree, new Set([1]), 'cpu', NO_PINS); // fold root to inspect rolled-up parent
+    const parent = rows.find((r) => r.proc.pid === 1)!;
+    expect(parent.diskReadAccum).toBe(100);
+    expect(parent.diskReadHasData).toBe(true);
+  });
+
+  it('marks fully unreadable subtree as hasData=false with accum 0', () => {
+    const tree = [proc({ pid: 1, ppid: 0 }), proc({ pid: 2, ppid: 1 }), proc({ pid: 3, ppid: 1 })];
+    const rows = buildVisibleTree(tree, new Set([1]), 'cpu', NO_PINS);
+    const parent = rows.find((r) => r.proc.pid === 1)!;
+    expect(parent.diskReadAccum).toBe(0);
+    expect(parent.diskReadHasData).toBe(false);
+    expect(parent.diskWriteAccum).toBe(0);
+    expect(parent.diskWriteHasData).toBe(false);
+  });
+
+  it('leaf readable contributes its own value', () => {
+    const rows = buildVisibleTree(
+      [proc({ pid: 1, disk_read_bytes_per_sec: 50, disk_write_bytes_per_sec: 75 })],
+      DEFAULT,
+      'cpu',
+      NO_PINS,
+    );
+    expect(rows[0].diskReadAccum).toBe(50);
+    expect(rows[0].diskWriteAccum).toBe(75);
+    expect(rows[0].diskReadHasData).toBe(true);
+    expect(rows[0].diskWriteHasData).toBe(true);
+  });
+
+  it('sorts roots by disk_read accumulated subtree', () => {
+    const roots = [
+      proc({ pid: 1, ppid: 0, disk_read_bytes_per_sec: 100 }),
+      proc({ pid: 2, ppid: 0, disk_read_bytes_per_sec: 500 }),
+      proc({ pid: 3, ppid: 0 }),
+    ];
+    expect(pids(buildVisibleTree(roots, DEFAULT, 'disk_read', NO_PINS))).toEqual([2, 1, 3]);
+  });
+
+  it('sorts roots by disk_write accumulated subtree', () => {
+    const roots = [
+      proc({ pid: 1, ppid: 0, disk_write_bytes_per_sec: 2048 }),
+      proc({ pid: 2, ppid: 0 }),
+    ];
+    expect(pids(buildVisibleTree(roots, DEFAULT, 'disk_write', NO_PINS))).toEqual([1, 2]);
   });
 });

@@ -1,6 +1,6 @@
 import type { ProcessEntry } from '../stores/processStore';
 
-type SortKey = 'cpu' | 'mem' | 'name';
+type SortKey = 'cpu' | 'mem' | 'name' | 'disk_read' | 'disk_write';
 
 export interface TreeRow {
   proc: ProcessEntry;
@@ -10,6 +10,10 @@ export interface TreeRow {
   pinned: boolean; // part of the active pinned ancestor chain
   cpuAccum: number; // own + every descendant's cpu_percent (already % of total cores)
   memAccum: number; // own + every descendant's memory_mb (PSS — never exceeds physical RAM)
+  diskReadAccum: number;  // own + descendants' disk_read_bytes_per_sec (null counted as 0)
+  diskWriteAccum: number;
+  diskReadHasData: boolean;  // any node in subtree had a non-null value
+  diskWriteHasData: boolean;
 }
 
 interface TreeNode {
@@ -17,6 +21,10 @@ interface TreeNode {
   children: TreeNode[];
   cpuAccum: number;
   memAccum: number;
+  diskReadAccum: number;
+  diskWriteAccum: number;
+  diskReadHasData: boolean;
+  diskWriteHasData: boolean;
 }
 
 // Roots (depth 0) are expanded by default; everything deeper is folded. The
@@ -54,6 +62,8 @@ function sortNodes(nodes: TreeNode[], sortBy: SortKey, pinned: Set<number>): voi
     if (ap !== bp) return ap - bp;
     if (sortBy === 'cpu') return b.cpuAccum - a.cpuAccum;
     if (sortBy === 'mem') return b.memAccum - a.memAccum;
+    if (sortBy === 'disk_read') return b.diskReadAccum - a.diskReadAccum;
+    if (sortBy === 'disk_write') return b.diskWriteAccum - a.diskWriteAccum;
     return a.proc.name.localeCompare(b.proc.name);
   });
 }
@@ -70,7 +80,16 @@ function buildNode(
   pinned: Set<number>,
 ): TreeNode {
   const proc = byPid.get(pid)!;
-  const node: TreeNode = { proc, children: [], cpuAccum: proc.cpu_percent, memAccum: proc.memory_mb };
+  const node: TreeNode = {
+    proc,
+    children: [],
+    cpuAccum: proc.cpu_percent,
+    memAccum: proc.memory_mb,
+    diskReadAccum: proc.disk_read_bytes_per_sec ?? 0,
+    diskWriteAccum: proc.disk_write_bytes_per_sec ?? 0,
+    diskReadHasData: proc.disk_read_bytes_per_sec !== null,
+    diskWriteHasData: proc.disk_write_bytes_per_sec !== null,
+  };
   seen.add(pid);
   for (const childPid of childPids.get(pid) ?? []) {
     if (seen.has(childPid)) continue; // cycle guard
@@ -78,6 +97,10 @@ function buildNode(
     node.children.push(child);
     node.cpuAccum += child.cpuAccum;
     node.memAccum += child.memAccum;
+    node.diskReadAccum += child.diskReadAccum;
+    node.diskWriteAccum += child.diskWriteAccum;
+    node.diskReadHasData = node.diskReadHasData || child.diskReadHasData;
+    node.diskWriteHasData = node.diskWriteHasData || child.diskWriteHasData;
   }
   sortNodes(node.children, sortBy, pinned);
   return node;
@@ -107,6 +130,10 @@ function emitRows(
     pinned: pinned.has(node.proc.pid),
     cpuAccum: node.cpuAccum,
     memAccum: node.memAccum,
+    diskReadAccum: node.diskReadAccum,
+    diskWriteAccum: node.diskWriteAccum,
+    diskReadHasData: node.diskReadHasData,
+    diskWriteHasData: node.diskWriteHasData,
   });
   if (!open) return;
   for (const child of node.children) emitRows(child, depth + 1, toggled, pinned, out);
@@ -154,5 +181,9 @@ export function flatToTreeRows(procs: ProcessEntry[]): TreeRow[] {
     pinned: false,
     cpuAccum: proc.cpu_percent,
     memAccum: proc.memory_mb,
+    diskReadAccum: proc.disk_read_bytes_per_sec ?? 0,
+    diskWriteAccum: proc.disk_write_bytes_per_sec ?? 0,
+    diskReadHasData: proc.disk_read_bytes_per_sec !== null,
+    diskWriteHasData: proc.disk_write_bytes_per_sec !== null,
   }));
 }

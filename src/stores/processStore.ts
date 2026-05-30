@@ -10,9 +10,13 @@ export interface ProcessEntry {
   status: string;
   user: string;
   threads: number;
+  disk_read_bytes_per_sec: number | null;
+  disk_write_bytes_per_sec: number | null;
+  disk_read_total_mb: number | null;
+  disk_write_total_mb: number | null;
 }
 
-type SortKey = 'cpu' | 'mem' | 'name';
+type SortKey = 'cpu' | 'mem' | 'name' | 'disk_read' | 'disk_write';
 
 export function filterProcesses(
   processes: ProcessEntry[],
@@ -24,6 +28,10 @@ export function filterProcesses(
     : [...processes];
   if (sortBy === 'cpu') result.sort((a, b) => b.cpu_percent - a.cpu_percent);
   else if (sortBy === 'mem') result.sort((a, b) => b.memory_mb - a.memory_mb);
+  else if (sortBy === 'disk_read')
+    result.sort((a, b) => (b.disk_read_bytes_per_sec ?? -Infinity) - (a.disk_read_bytes_per_sec ?? -Infinity));
+  else if (sortBy === 'disk_write')
+    result.sort((a, b) => (b.disk_write_bytes_per_sec ?? -Infinity) - (a.disk_write_bytes_per_sec ?? -Infinity));
   else result.sort((a, b) => a.name.localeCompare(b.name));
   return result;
 }

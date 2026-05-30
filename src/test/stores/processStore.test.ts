@@ -5,22 +5,26 @@ beforeEach(() => {
   useProcessStore.setState({ processes: [], filter: '', sortBy: 'cpu', pinnedPid: null, toggled: new Set() });
 });
 
-function proc(pid: number, ppid = 0): ProcessEntry {
-  return { pid, ppid, name: `p${pid}`, cpu_percent: 0, memory_mb: 0, status: 'R', user: 'u', threads: 1 };
+function proc(pid: number, ppid = 0, overrides: Partial<ProcessEntry> = {}): ProcessEntry {
+  return {
+    pid, ppid, name: `p${pid}`, cpu_percent: 0, memory_mb: 0, status: 'R', user: 'u', threads: 1,
+    disk_read_bytes_per_sec: null, disk_write_bytes_per_sec: null,
+    disk_read_total_mb: null, disk_write_total_mb: null,
+    ...overrides,
+  };
 }
 
 describe('processStore', () => {
   it('stores process list', () => {
-    const proc = { pid: 1, ppid: 0, name: 'init', cpu_percent: 0.1, memory_mb: 10, status: 'Running', user: 'root', threads: 1 };
-    useProcessStore.getState().setProcesses([proc]);
+    useProcessStore.getState().setProcesses([proc(1, 0, { name: 'init', cpu_percent: 0.1, memory_mb: 10, user: 'root' })]);
     expect(useProcessStore.getState().processes).toHaveLength(1);
     expect(useProcessStore.getState().processes[0].pid).toBe(1);
   });
 
   it('filters by name', () => {
     useProcessStore.getState().setProcesses([
-      { pid: 1, ppid: 0, name: 'init', cpu_percent: 0, memory_mb: 0, status: 'Running', user: 'root', threads: 1 },
-      { pid: 2, ppid: 0, name: 'chrome', cpu_percent: 0, memory_mb: 0, status: 'Running', user: 'user', threads: 1 },
+      proc(1, 0, { name: 'init', user: 'root' }),
+      proc(2, 0, { name: 'chrome', user: 'user' }),
     ]);
     useProcessStore.getState().setFilter('chrome');
     const s = useProcessStore.getState();
@@ -31,20 +35,41 @@ describe('processStore', () => {
 
   it('sorts by memory', () => {
     useProcessStore.getState().setProcesses([
-      { pid: 1, ppid: 0, name: 'a', cpu_percent: 0, memory_mb: 100, status: 'Running', user: 'u', threads: 1 },
-      { pid: 2, ppid: 0, name: 'b', cpu_percent: 0, memory_mb: 50,  status: 'Running', user: 'u', threads: 1 },
+      proc(1, 0, { name: 'a', memory_mb: 100 }),
+      proc(2, 0, { name: 'b', memory_mb: 50 }),
     ]);
     useProcessStore.getState().setSortBy('mem');
     const s = useProcessStore.getState();
     const sorted = filterProcesses(s.processes, s.filter, s.sortBy);
     expect(sorted[0].pid).toBe(1);
   });
+
+  it('sorts by disk_read desc, treating null as -Infinity', () => {
+    useProcessStore.getState().setProcesses([
+      proc(1, 0, { disk_read_bytes_per_sec: 100 }),
+      proc(2, 0),
+      proc(3, 0, { disk_read_bytes_per_sec: 500 }),
+    ]);
+    useProcessStore.getState().setSortBy('disk_read');
+    const s = useProcessStore.getState();
+    const sorted = filterProcesses(s.processes, s.filter, s.sortBy);
+    expect(sorted.map((p) => p.pid)).toEqual([3, 1, 2]);
+  });
+
+  it('sorts by disk_write desc, null last', () => {
+    useProcessStore.getState().setProcesses([
+      proc(1, 0),
+      proc(2, 0, { disk_write_bytes_per_sec: 2048 }),
+    ]);
+    useProcessStore.getState().setSortBy('disk_write');
+    const s = useProcessStore.getState();
+    const sorted = filterProcesses(s.processes, s.filter, s.sortBy);
+    expect(sorted.map((p) => p.pid)).toEqual([2, 1]);
+  });
 });
 
 describe('adjacentPid', () => {
-  const rows: ProcessEntry[] = [1, 2, 3].map((pid) => ({
-    pid, ppid: 0, name: `p${pid}`, cpu_percent: 0, memory_mb: 0, status: 'R', user: 'u', threads: 1,
-  }));
+  const rows: ProcessEntry[] = [1, 2, 3].map((pid) => proc(pid));
 
   it('returns first pid when nothing selected', () => {
     expect(adjacentPid(rows, null, 1)).toBe(1);
