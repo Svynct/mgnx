@@ -6,6 +6,7 @@ import { buildVisibleTree, flatToTreeRows, ancestorPids } from './lib/processTre
 import { useGpuStore } from './stores/gpuStore';
 import { useConfigStore, AppConfig } from './stores/configStore';
 import { isEditableTarget } from './lib/keyboard';
+import { AlertToasts } from './components/AlertToasts';
 import { TopBar } from './components/TopBar';
 import { TabBar, TabName } from './components/TabBar';
 import { ProcessesTab } from './components/tabs/ProcessesTab';
@@ -83,19 +84,22 @@ export default function App() {
   }, []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-      <TopBar />
-      <TabBar tabs={tabs} active={tab} onSelect={setTab} />
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        {tab === 'processes'
-          ? <ProcessesTab rows={rows} />
-          : <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
-              {tab === 'resources' ? <ResourcesTab />
-                : tab === 'network' ? <NetworkTab />
-                : tab === 'disk'    ? <DiskTab />
-                : <GpuTab />}
-            </div>}
+    <>
+      <AlertToasts />
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+        <TopBar />
+        <TabBar tabs={tabs} active={tab} onSelect={setTab} />
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          {tab === 'processes'
+            ? <ProcessesTab rows={rows} />
+            : <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
+                {tab === 'resources' ? <ResourcesTab />
+                  : tab === 'network' ? <NetworkTab />
+                  : tab === 'disk'    ? <DiskTab />
+                  : <GpuTab />}
+              </div>}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

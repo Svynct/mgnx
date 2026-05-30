@@ -7,6 +7,7 @@ import { useDiskStore } from '../stores/diskStore';
 import { useGpuStore } from '../stores/gpuStore';
 import { useThermalStore } from '../stores/thermalStore';
 import { useBatteryStore } from '../stores/batteryStore';
+import { useAlertsStore } from '../stores/alertsStore';
 
 export function useTauriEvents() {
   useEffect(() => {
@@ -20,6 +21,7 @@ export function useTauriEvents() {
       listen('gpu-available',    (e) => useGpuStore.getState().setAvailable(e.payload as boolean)),
       listen('thermal-update',   (e) => useThermalStore.getState().setThermal(e.payload as any)),
       listen('battery-update',   (e) => useBatteryStore.getState().setBattery(e.payload as any)),
+      listen('alert-fire',       (e) => useAlertsStore.getState().push(e.payload as any)),
     ];
     return () => { unlisteners.forEach((p) => p.then((fn) => fn())); };
   }, []);
