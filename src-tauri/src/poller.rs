@@ -59,6 +59,13 @@ impl SystemPoller {
             let gpu_available = !matches!(self.gpu_backend, crate::gpu::GpuBackend::None);
             let mut tick: u32 = 0;
 
+            // Prime CPU sampler: cpu_usage() is delta-based, so the first refresh
+            // returns 0 for every core. Sample once + wait the sysinfo minimum so the
+            // first loop iteration sees real values (and aggregate-CPU alerts fire on
+            // tick 1 alongside memory/disk/temp instead of one tick later).
+            sys.refresh_cpu_specifics(CpuRefreshKind::everything());
+            thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+
             loop {
                 sys.refresh_cpu_specifics(CpuRefreshKind::everything());
                 sys.refresh_memory();

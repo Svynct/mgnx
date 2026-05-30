@@ -1,15 +1,6 @@
 import { useEffect } from 'react';
 import { useAlertsStore, FiredAlert } from '../stores/alertsStore';
 
-function alertColor(kind: FiredAlert['kind']): string {
-  switch (kind) {
-    case 'CpuTemp': return 'var(--red)';
-    case 'Memory':  return 'var(--peach)';
-    case 'Disk':    return 'var(--yellow)';
-    case 'Cpu':     return 'var(--mauve)';
-  }
-}
-
 function Toast({ alert }: { alert: FiredAlert }) {
   const dismiss = useAlertsStore((s) => s.dismiss);
   useEffect(() => {
@@ -20,8 +11,7 @@ function Toast({ alert }: { alert: FiredAlert }) {
   return (
     <div onClick={() => dismiss(alert.id)} style={{
       background: 'var(--mantle)',
-      border: `1px solid ${alertColor(alert.kind)}`,
-      borderLeftWidth: 4,
+      border: '1px solid var(--red)',
       padding: '8px 12px',
       borderRadius: 6,
       fontSize: 12,
