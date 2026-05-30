@@ -1,5 +1,6 @@
 import { forwardRef, memo } from 'react';
 import { ProcessEntry } from '../stores/processStore';
+import { formatBytesPerSec } from '../lib/format';
 
 function heatLevel(cpu: number): { color: string; attr: string } {
   if (cpu >= 15) return { color: 'var(--red)',     attr: 'red'    };
@@ -21,6 +22,10 @@ interface ProcessRowProps {
   expanded: boolean;
   cpuAccum: number;
   memAccum: number;
+  diskReadAccum: number;
+  diskWriteAccum: number;
+  diskReadHasData: boolean;
+  diskWriteHasData: boolean;
   selected: boolean;
   pinned?: boolean;
   rowHeight: number;
@@ -32,8 +37,9 @@ interface ProcessRowProps {
 
 export const ProcessRow = memo(
   forwardRef<HTMLTableRowElement, ProcessRowProps>(
-    ({ proc, depth, hasChildren, expanded, cpuAccum, memAccum, selected, pinned,
-       rowHeight, scrollMarginTop, onSelect, onContextMenu, onToggleFold }, ref) => {
+    ({ proc, depth, hasChildren, expanded, cpuAccum, memAccum,
+       diskReadAccum, diskWriteAccum, diskReadHasData, diskWriteHasData,
+       selected, pinned, rowHeight, scrollMarginTop, onSelect, onContextMenu, onToggleFold }, ref) => {
       // Every row shows its subtree total (own + all descendants). A leaf's accum
       // is just its own usage; a parent rolls up its children. CPU is already a
       // share of all cores (poller divides by core count); memory is summed RSS.
@@ -75,6 +81,12 @@ export const ProcessRow = memo(
           {cpu.toFixed(1)}%
         </td>
         <td style={{ padding: '3px 6px', textAlign: 'right' }}>{formatMem(mem)}</td>
+        <td style={{ padding: '3px 6px', textAlign: 'right', color: 'var(--overlay0)' }}>
+          {diskReadHasData ? formatBytesPerSec(diskReadAccum) : '—'}
+        </td>
+        <td style={{ padding: '3px 6px', textAlign: 'right', color: 'var(--overlay0)' }}>
+          {diskWriteHasData ? formatBytesPerSec(diskWriteAccum) : '—'}
+        </td>
         <td style={{ padding: '3px 6px', color: 'var(--overlay0)' }}>{proc.status}</td>
         <td style={{ padding: '3px 6px', color: 'var(--overlay0)' }}>{proc.user}</td>
         <td style={{ padding: '3px 6px', textAlign: 'right', color: 'var(--overlay0)' }}>{proc.threads}</td>

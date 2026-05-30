@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useProcessStore } from '../stores/processStore';
 
 interface ThreadInfo { tid: number; state: string; }
 interface ProcessDetails {
@@ -13,6 +14,7 @@ interface DetailsDrawerProps { pid: number; onClose: () => void; }
 export function DetailsDrawer({ pid, onClose }: DetailsDrawerProps) {
   const [details, setDetails] = useState<ProcessDetails | null>(null);
   const [error, setError] = useState('');
+  const proc = useProcessStore((s) => s.processes.find((p) => p.pid === pid));
 
   useEffect(() => {
     invoke<ProcessDetails>('process_details', { pid })
@@ -49,6 +51,14 @@ export function DetailsDrawer({ pid, onClose }: DetailsDrawerProps) {
             <span>{details.fd_count}</span>
             <span style={{ color: 'var(--overlay0)' }}>Env vars</span>
             <span>{details.env_count}</span>
+            <span style={{ color: 'var(--overlay0)' }}>Disk read</span>
+            <span>{proc?.disk_read_total_mb != null
+              ? `${proc.disk_read_total_mb.toFixed(1)} MB`
+              : '—'}</span>
+            <span style={{ color: 'var(--overlay0)' }}>Disk written</span>
+            <span>{proc?.disk_write_total_mb != null
+              ? `${proc.disk_write_total_mb.toFixed(1)} MB`
+              : '—'}</span>
             <span style={{ color: 'var(--overlay0)' }}>Threads</span>
             <div>
               {details.threads.map((t) => (

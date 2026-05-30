@@ -13,12 +13,21 @@ const COL_HEADERS: { label: string; align: 'left' | 'right' }[] = [
   { label: 'Name',    align: 'left'  },
   { label: 'CPU%',    align: 'right' },
   { label: 'Memory',  align: 'right' },
+  { label: 'Disk R',  align: 'right' },
+  { label: 'Disk W',  align: 'right' },
   { label: 'Status',  align: 'left'  },
   { label: 'User',    align: 'left'  },
   { label: 'Threads', align: 'right' },
 ];
 
-const SORT_KEYS = ['cpu', 'mem', 'name'] as const;
+const SORT_KEYS = ['cpu', 'mem', 'name', 'disk_read', 'disk_write'] as const;
+const SORT_LABELS: Record<typeof SORT_KEYS[number], string> = {
+  cpu: 'CPU',
+  mem: 'MEM',
+  name: 'NAME',
+  disk_read: 'DISK R',
+  disk_write: 'DISK W',
+};
 const ROW_H = 26;      // must match ProcessRow height for virtualization math
 const HEADER_H = 30;
 const OVERSCAN = 10;
@@ -157,7 +166,7 @@ export function ProcessesTab({ rows }: ProcessesTabProps) {
               borderColor: sortBy === s ? 'var(--mauve)' : undefined,
               color: sortBy === s ? 'var(--mauve)' : undefined,
             }}>
-            {s.toUpperCase()}
+            {SORT_LABELS[s]}
           </button>
         ))}
         <span className="badge">{total} processes</span>
@@ -168,7 +177,9 @@ export function ProcessesTab({ rows }: ProcessesTabProps) {
         <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
           <colgroup>
             <col style={{ width: 60 }} /><col /><col style={{ width: 70 }} />
-            <col style={{ width: 90 }} /><col style={{ width: 80 }} />
+            <col style={{ width: 90 }} />
+            <col style={{ width: 80 }} /><col style={{ width: 80 }} />
+            <col style={{ width: 80 }} />
             <col style={{ width: 80 }} /><col style={{ width: 60 }} />
           </colgroup>
           <thead>
@@ -183,7 +194,7 @@ export function ProcessesTab({ rows }: ProcessesTabProps) {
             </tr>
           </thead>
           <tbody>
-            {padTop > 0 && <tr style={{ height: padTop }}><td colSpan={7} style={{ padding: 0, border: 0 }} /></tr>}
+            {padTop > 0 && <tr style={{ height: padTop }}><td colSpan={9} style={{ padding: 0, border: 0 }} /></tr>}
             {visible.map((r) => (
               <ProcessRow
                 key={r.proc.pid}
@@ -194,6 +205,10 @@ export function ProcessesTab({ rows }: ProcessesTabProps) {
                 expanded={r.expanded}
                 cpuAccum={r.cpuAccum}
                 memAccum={r.memAccum}
+                diskReadAccum={r.diskReadAccum}
+                diskWriteAccum={r.diskWriteAccum}
+                diskReadHasData={r.diskReadHasData}
+                diskWriteHasData={r.diskWriteHasData}
                 selected={r.proc.pid === selectedPid}
                 pinned={r.pinned}
                 rowHeight={ROW_H}
@@ -203,7 +218,7 @@ export function ProcessesTab({ rows }: ProcessesTabProps) {
                 onToggleFold={onToggleFold}
               />
             ))}
-            {padBottom > 0 && <tr style={{ height: padBottom }}><td colSpan={7} style={{ padding: 0, border: 0 }} /></tr>}
+            {padBottom > 0 && <tr style={{ height: padBottom }}><td colSpan={9} style={{ padding: 0, border: 0 }} /></tr>}
           </tbody>
         </table>
       </div>
