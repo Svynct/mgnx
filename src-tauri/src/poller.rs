@@ -20,6 +20,7 @@ pub struct SystemPoller {
     pss_tick: u32,
     // pid → (read_bytes, write_bytes) from previous tick; used for delta rate calc.
     prev_proc_io: HashMap<u32, (u64, u64)>,
+    config: crate::config::AppConfig,
 }
 
 impl SystemPoller {
@@ -35,6 +36,7 @@ impl SystemPoller {
             pss_cache: HashMap::new(),
             pss_tick: 0,
             prev_proc_io: HashMap::new(),
+            config: crate::config::load(),
         }
     }
 
@@ -76,7 +78,8 @@ impl SystemPoller {
                 // webview mounting its listener and is usually missed.
                 let _ = self.handle.emit("gpu-available", gpu_available);
 
-                thread::sleep(Duration::from_secs(1));
+                let interval_ms = (1000.0 / self.config.refresh_rate_hz).max(1.0) as u64;
+                thread::sleep(Duration::from_millis(interval_ms));
             }
         });
     }
