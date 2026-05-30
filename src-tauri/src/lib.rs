@@ -4,6 +4,7 @@ pub mod poller;
 pub mod gpu;
 pub mod commands;
 pub mod config;
+pub mod alerts;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
