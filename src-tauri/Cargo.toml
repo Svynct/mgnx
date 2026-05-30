@@ -23,6 +23,7 @@ sysinfo = "0.32"
 nvml-wrapper = "0.10"
 nix = { version = "0.29", features = ["signal", "process", "net"] }
 libc = "0.2"
+toml = "0.8"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
