@@ -182,6 +182,7 @@ impl SystemPoller {
             .map(|(i, c)| CpuCoreUsage {
                 index: i,
                 usage: c.cpu_usage(),
+                frequency_mhz: read_cpu_freq_mhz(i),
             })
             .collect();
 
@@ -347,6 +348,15 @@ fn read_pss_mb(pid: u32) -> Option<f64> {
 fn read_pid_io(pid: u32) -> Option<(u64, u64)> {
     let content = std::fs::read_to_string(format!("/proc/{pid}/io")).ok()?;
     crate::parse::parse_pid_io(&content)
+}
+
+// Reads /sys/devices/system/cpu/cpu<N>/cpufreq/scaling_cur_freq and converts
+// kHz → MHz. None on systems without cpufreq (some VMs, older kernels).
+fn read_cpu_freq_mhz(index: usize) -> Option<u32> {
+    let content = std::fs::read_to_string(
+        format!("/sys/devices/system/cpu/cpu{index}/cpufreq/scaling_cur_freq")
+    ).ok()?;
+    crate::parse::parse_cpu_freq_mhz(&content)
 }
 
 fn parse_proc_connections() -> Vec<NetworkConnection> {

@@ -20,6 +20,7 @@ pub struct ProcessEntry {
 pub struct CpuCoreUsage {
     pub index: usize,
     pub usage: f32,
+    pub frequency_mhz: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -154,7 +155,7 @@ mod tests {
         let payload = ResourcesPayload {
             cpu_model: "AMD Ryzen 9".to_string(),
             core_count: 16,
-            cores: vec![CpuCoreUsage { index: 0, usage: 25.5 }],
+            cores: vec![CpuCoreUsage { index: 0, usage: 25.5, frequency_mhz: Some(1764) }],
             ram_used_mb: 8192.0,
             ram_total_mb: 32768.0,
             swap_used_mb: 0.0,
