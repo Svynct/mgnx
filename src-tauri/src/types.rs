@@ -10,6 +10,10 @@ pub struct ProcessEntry {
     pub status: String,
     pub user: String,
     pub threads: u32,
+    pub disk_read_bytes_per_sec: Option<f64>,
+    pub disk_write_bytes_per_sec: Option<f64>,
+    pub disk_read_total_mb: Option<f64>,
+    pub disk_write_total_mb: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,6 +137,10 @@ mod tests {
             status: "Running".to_string(),
             user: "alice".to_string(),
             threads: 2,
+            disk_read_bytes_per_sec: None,
+            disk_write_bytes_per_sec: None,
+            disk_read_total_mb: None,
+            disk_write_total_mb: None,
         };
         let json = serde_json::to_string(&entry).unwrap();
         let decoded: ProcessEntry = serde_json::from_str(&json).unwrap();

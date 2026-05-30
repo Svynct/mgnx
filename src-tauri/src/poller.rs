@@ -18,6 +18,8 @@ pub struct SystemPoller {
     // pid → last-read PSS in MB; refreshed every 3rd tick to amortize /proc I/O.
     pss_cache: HashMap<u32, f64>,
     pss_tick: u32,
+    // pid → (read_bytes, write_bytes) from previous tick; used for delta rate calc.
+    prev_proc_io: HashMap<u32, (u64, u64)>,
 }
 
 impl SystemPoller {
@@ -32,6 +34,7 @@ impl SystemPoller {
             prev_disk_sectors: HashMap::new(),
             pss_cache: HashMap::new(),
             pss_tick: 0,
+            prev_proc_io: HashMap::new(),
         }
     }
 
@@ -112,6 +115,31 @@ impl SystemPoller {
                         .unwrap_or(&(p.memory() as f64 / 1_048_576.0))
                 };
 
+                let (
+                    disk_read_bytes_per_sec,
+                    disk_write_bytes_per_sec,
+                    disk_read_total_mb,
+                    disk_write_total_mb,
+                ) = match read_pid_io(pid) {
+                    Some((read_now, write_now)) => {
+                        let (read_per_sec, write_per_sec) = match self.prev_proc_io.get(&pid) {
+                            Some(&(prev_r, prev_w)) => (
+                                read_now.saturating_sub(prev_r) as f64,
+                                write_now.saturating_sub(prev_w) as f64,
+                            ),
+                            None => (0.0, 0.0),
+                        };
+                        self.prev_proc_io.insert(pid, (read_now, write_now));
+                        (
+                            Some(read_per_sec),
+                            Some(write_per_sec),
+                            Some(read_now as f64 / 1_048_576.0),
+                            Some(write_now as f64 / 1_048_576.0),
+                        )
+                    }
+                    None => (None, None, None, None),
+                };
+
                 ProcessEntry {
                     pid,
                     ppid: p.parent().map(|pp| pp.as_u32()).unwrap_or(0),
@@ -121,9 +149,19 @@ impl SystemPoller {
                     status: format!("{:?}", p.status()),
                     user,
                     threads: p.tasks().map(|t| t.len() as u32).unwrap_or(1),
+                    disk_read_bytes_per_sec,
+                    disk_write_bytes_per_sec,
+                    disk_read_total_mb,
+                    disk_write_total_mb,
                 }
             })
             .collect();
+
+        // GC: drop prev_proc_io entries for pids no longer alive. Prevents both
+        // unbounded growth and pid-recycle giving a bogus huge delta on first sight.
+        let live_pids: std::collections::HashSet<u32> =
+            entries.iter().map(|e| e.pid).collect();
+        self.prev_proc_io.retain(|pid, _| live_pids.contains(pid));
 
         entries.sort_by(|a, b| {
             b.cpu_percent
@@ -303,6 +341,14 @@ fn read_pss_mb(pid: u32) -> Option<f64> {
     crate::parse::pss_mb(&content)
 }
 
+// Reads /proc/<pid>/io and returns (read_bytes, write_bytes). None covers both
+// permission-denied (foreign uid) and "process disappeared between scan and read"
+// — caller treats them identically (emit None to UI as a dash).
+fn read_pid_io(pid: u32) -> Option<(u64, u64)> {
+    let content = std::fs::read_to_string(format!("/proc/{pid}/io")).ok()?;
+    crate::parse::parse_pid_io(&content)
+}
+
 fn parse_proc_connections() -> Vec<NetworkConnection> {
     let mut conns = Vec::new();
     for (path, proto) in &[("/proc/net/tcp", "TCP"), ("/proc/net/tcp6", "TCP6")] {
@@ -334,6 +380,10 @@ mod tests {
                 status: "R".to_string(),
                 user: "u".to_string(),
                 threads: 1,
+                disk_read_bytes_per_sec: None,
+                disk_write_bytes_per_sec: None,
+                disk_read_total_mb: None,
+                disk_write_total_mb: None,
             },
             ProcessEntry {
                 pid: 2,
@@ -344,6 +394,10 @@ mod tests {
                 status: "R".to_string(),
                 user: "u".to_string(),
                 threads: 1,
+                disk_read_bytes_per_sec: None,
+                disk_write_bytes_per_sec: None,
+                disk_read_total_mb: None,
+                disk_write_total_mb: None,
             },
             ProcessEntry {
                 pid: 3,
@@ -354,6 +408,10 @@ mod tests {
                 status: "R".to_string(),
                 user: "u".to_string(),
                 threads: 1,
+                disk_read_bytes_per_sec: None,
+                disk_write_bytes_per_sec: None,
+                disk_read_total_mb: None,
+                disk_write_total_mb: None,
             },
         ];
         entries.sort_by(|a, b| {
@@ -379,6 +437,10 @@ mod tests {
                 status: "R".to_string(),
                 user: "u".to_string(),
                 threads: 1,
+                disk_read_bytes_per_sec: None,
+                disk_write_bytes_per_sec: None,
+                disk_read_total_mb: None,
+                disk_write_total_mb: None,
             },
             ProcessEntry {
                 pid: 2,
@@ -389,6 +451,10 @@ mod tests {
                 status: "R".to_string(),
                 user: "u".to_string(),
                 threads: 1,
+                disk_read_bytes_per_sec: None,
+                disk_write_bytes_per_sec: None,
+                disk_read_total_mb: None,
+                disk_write_total_mb: None,
             },
         ];
         // Should not panic:
