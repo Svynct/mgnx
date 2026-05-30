@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export interface CpuCoreUsage { index: number; usage: number; }
+export interface CpuCoreUsage { index: number; usage: number; frequency_mhz: number | null; }
 
 export interface ResourcesPayload {
   cpu_model: string;
