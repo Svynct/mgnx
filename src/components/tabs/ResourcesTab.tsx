@@ -29,6 +29,11 @@ function coreHeat(usage: number): string {
   return 'var(--green)';
 }
 
+function formatMhz(mhz: number): string {
+  if (mhz >= 1000) return `${(mhz / 1000).toFixed(2)} GHz`;
+  return `${mhz} MHz`;
+}
+
 export function ResourcesTab() {
   const { cpu_model, core_count, cores, ram_used_mb, ram_total_mb,
           swap_used_mb, swap_total_mb, cpuHistory, ramHistory } = useResourceStore();
@@ -49,7 +54,13 @@ export function ResourcesTab() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 16 }}>
           {cores.map((c) => (
             <div key={c.index}>
-              <div style={{ fontSize: 10, color: 'var(--overlay0)', marginBottom: 2 }}>C{c.index}</div>
+              <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                fontSize: 10, color: 'var(--overlay0)', marginBottom: 2,
+              }}>
+                <span>C{c.index}</span>
+                {c.frequency_mhz !== null && <span>{formatMhz(c.frequency_mhz)}</span>}
+              </div>
               <div style={{ height: 6, background: 'var(--surface0)', borderRadius: 3, overflow: 'hidden' }}>
                 <div style={{ width: `${c.usage}%`, height: '100%',
                   background: coreHeat(c.usage), borderRadius: 3 }} />
