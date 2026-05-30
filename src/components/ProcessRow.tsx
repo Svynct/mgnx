@@ -76,6 +76,19 @@ export const ProcessRow = memo(
             style={{ display: 'inline-block', width: 14, textAlign: 'center', color: 'var(--overlay0)', cursor: hasChildren ? 'pointer' : 'default' }}
           >{caret}</span>
           {proc.name}
+          {proc.container_id && (
+            <span style={{
+              display: 'inline-block',
+              marginLeft: 6,
+              padding: '0 4px',
+              borderRadius: 3,
+              fontSize: 9,
+              background: 'var(--surface0)',
+              color: 'var(--blue)',
+              fontFamily: 'monospace',
+              verticalAlign: 'middle',
+            }}>{proc.container_id}</span>
+          )}
         </td>
         <td style={{ padding: '3px 6px', color: heat.color, textAlign: 'right' }}>
           {cpu.toFixed(1)}%

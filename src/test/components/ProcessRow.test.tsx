@@ -35,6 +35,17 @@ describe('ProcessRow', () => {
     expect(row?.getAttribute('data-heat')).toBe('red');
   });
 
+  it('renders container ID badge when set', () => {
+    const { getByText } = render(
+      <table><tbody><ProcessRow
+        proc={{ ...base, container_id: 'abc123def456' }}
+        {...treeProps}
+        selected={false} rowHeight={26} scrollMarginTop={30}
+        onSelect={() => {}} onContextMenu={() => {}} onToggleFold={() => {}} /></tbody></table>
+    );
+    expect(getByText('abc123def456')).toBeTruthy();
+  });
+
   it('renders disk read rate when hasData and dash when not', () => {
     const { getByText, queryAllByText } = render(
       <table><tbody><ProcessRow
