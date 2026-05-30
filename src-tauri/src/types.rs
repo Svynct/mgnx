@@ -123,6 +123,13 @@ pub struct ThreadInfo {
     pub state: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatteryInfo {
+    pub percentage: u8,
+    pub status: String,
+    pub time_remaining_secs: Option<u32>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,6 +262,32 @@ mod tests {
         let decoded: ThermalPayload = serde_json::from_str(&json).unwrap();
         assert!(decoded.cpu_temp_c.is_none());
         assert!(decoded.drives.is_empty());
+    }
+
+    #[test]
+    fn battery_info_serde_roundtrip() {
+        let info = BatteryInfo {
+            percentage: 78,
+            status: "Discharging".to_string(),
+            time_remaining_secs: Some(7200),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let decoded: BatteryInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.percentage, 78);
+        assert_eq!(decoded.time_remaining_secs, Some(7200));
+    }
+
+    #[test]
+    fn battery_info_serde_roundtrip_no_time() {
+        let info = BatteryInfo {
+            percentage: 100,
+            status: "Full".to_string(),
+            time_remaining_secs: None,
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let decoded: BatteryInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.status, "Full");
+        assert!(decoded.time_remaining_secs.is_none());
     }
 
     #[test]
