@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, Networks, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, Users};
 use tauri::{AppHandle, Emitter};
 
+use crate::alerts::{AlertEngine, AlertKind};
 use crate::types::{BatteryInfo, CpuCoreUsage, DiskEntry, NetworkConnection, NetworkInterface, ProcessEntry, ResourcesPayload};
 
 pub struct SystemPoller {
@@ -21,6 +22,9 @@ pub struct SystemPoller {
     // pid → (read_bytes, write_bytes) from previous tick; used for delta rate calc.
     prev_proc_io: HashMap<u32, (u64, u64)>,
     config: crate::config::AppConfig,
+    alerts: AlertEngine,
+    last_cpu_temp_c: Option<f32>,
+    last_max_disk_pct: f64,
 }
 
 impl SystemPoller {
@@ -37,6 +41,9 @@ impl SystemPoller {
             pss_tick: 0,
             prev_proc_io: HashMap::new(),
             config: crate::config::load(),
+            alerts: AlertEngine::new(),
+            last_cpu_temp_c: None,
+            last_max_disk_pct: 0.0,
         }
     }
 
@@ -73,6 +80,7 @@ impl SystemPoller {
                 self.emit_disks();
                 self.emit_thermal();
                 self.emit_battery();
+                self.tick_alerts(&sys);
                 crate::gpu::poll_gpu(&self.gpu_backend, &self.handle);
                 // Re-broadcast each tick: the one-shot emit at setup races the
                 // webview mounting its listener and is usually missed.
@@ -252,8 +260,9 @@ impl SystemPoller {
         }
     }
 
-    fn emit_thermal(&self) {
+    fn emit_thermal(&mut self) {
         let payload = crate::parse::read_thermal();
+        self.last_cpu_temp_c = payload.cpu_temp_c;
         if let Err(e) = self.handle.emit("thermal-update", payload) {
             eprintln!("emit thermal-update failed: {e}");
         }
@@ -263,6 +272,40 @@ impl SystemPoller {
         let payload = read_battery();
         if let Err(e) = self.handle.emit("battery-update", payload) {
             eprintln!("emit battery-update failed: {e}");
+        }
+    }
+
+    fn tick_alerts(&mut self, sys: &System) {
+        let cfg = self.config.alerts;
+        let now = Instant::now();
+
+        let cpu_pct = {
+            let cpus = sys.cpus();
+            if cpus.is_empty() {
+                0.0
+            } else {
+                cpus.iter().map(|c| c.cpu_usage() as f64).sum::<f64>() / cpus.len() as f64
+            }
+        };
+        let mem_pct = if sys.total_memory() > 0 {
+            sys.used_memory() as f64 / sys.total_memory() as f64 * 100.0
+        } else { 0.0 };
+        let temp = self.last_cpu_temp_c.map(|c| c as f64).unwrap_or(0.0);
+
+        let fires = [
+            self.alerts.tick(AlertKind::Cpu, cpu_pct,
+                cfg.cpu_percent_threshold, cfg.cpu_percent_duration_secs, now),
+            self.alerts.tick(AlertKind::Memory, mem_pct,
+                cfg.memory_percent_threshold, cfg.memory_percent_duration_secs, now),
+            self.alerts.tick(AlertKind::Disk, self.last_max_disk_pct,
+                cfg.disk_percent_threshold, cfg.disk_percent_duration_secs, now),
+            self.alerts.tick(AlertKind::CpuTemp, temp,
+                cfg.cpu_temp_threshold_c, cfg.cpu_temp_duration_secs, now),
+        ];
+        for fire in fires.into_iter().flatten() {
+            if let Err(e) = self.handle.emit("alert-fire", &fire) {
+                eprintln!("emit alert-fire failed: {e}");
+            }
         }
     }
 
@@ -309,6 +352,12 @@ impl SystemPoller {
         for (dev, counts) in diskstats {
             self.prev_disk_sectors.insert(dev, counts);
         }
+
+        // Track worst-mount usage for the alert tick.
+        self.last_max_disk_pct = entries.iter()
+            .filter(|d| d.total_bytes > 0)
+            .map(|d| (d.used_bytes as f64 / d.total_bytes as f64) * 100.0)
+            .fold(0.0_f64, f64::max);
 
         if let Err(e) = self.handle.emit("disk-update", entries) {
             eprintln!("emit disk-update failed: {e}");
